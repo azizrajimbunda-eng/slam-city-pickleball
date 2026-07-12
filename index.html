@@ -108,7 +108,8 @@
     box-shadow:inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f;
     touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   button.tb:active{ transform:translateY(2px); box-shadow:inset 0 -2px 0 rgba(0,0,0,.5), 0 1px 0 #05040f; }
-  button.tb.dink{ border-color:var(--p2); } button.tb.drive{ border-color:var(--ball); } button.tb.smash{ border-color:var(--p1); grid-column:1/3; }
+  button.tb.dink{ border-color:var(--p2); } button.tb.drive{ border-color:var(--ball); }
+  button.tb.smash{ border-color:var(--p1); } button.tb.lob{ border-color:#7bd86a; }
 
   @media (max-width:600px){
     body{ padding:12px 8px 24px; gap:10px; }
@@ -144,6 +145,7 @@
         <button class="tb dink" id="tbDink">DINK</button>
         <button class="tb drive" id="tbDrive">DRIVE</button>
         <button class="tb smash" id="tbSmash">SMASH</button>
+        <button class="tb lob" id="tbLob">LOB</button>
       </div>
     </div>
 
@@ -293,6 +295,11 @@
   const scoreCall=()=> score[servingTeam]+'-'+score[1-servingTeam]+'-'+serverNum;
   let phase='serve', phaseTimer=40, lastReason='POINT';
   let responsible=null, matchOver=false;
+  // speed-up hand battle: frames remaining + exchange count (pressure ramps per exchange)
+  let handBattle=0, hbCount=0;
+  // human serve meter: oscillating needle, tap to lock
+  const serveMeter={t:0, locked:-1, hold:0, quality:undefined};
+  const meterPos=()=>{ const c=(serveMeter.t%72)/72; return c<0.5? c*2 : 2-c*2; };
 
   // effects
   let shakeMag=0, shakeX=0, shakeY=0, flash=0, crowdJump=0, intenseFlash=0;
@@ -355,7 +362,13 @@
     ball.tcx = tcx; ball.tcy = baselineCy(rt);
     // referee announces the score call
     popup(scoreCall(), 0, 0.52, 1.3, servingTeam===0?C.p1:C.p2, false);
-    phase='serve'; phaseTimer = reducedMotion? 30 : 38;
+    // the human times their own serve; AI serves on a timer
+    if(controlMode && servingTeam===0 && serverIdx===0){
+      serveMeter.t=0; serveMeter.locked=-1; serveMeter.quality=undefined;
+      phase='serveMeter';
+    } else {
+      phase='serve'; phaseTimer = reducedMotion? 30 : 38;
+    }
   }
 
   function assignResponsible(rt){
@@ -363,7 +376,8 @@
     const ps = team(rt);
     responsible = (Math.abs(ps[0].cx - ball.tcx) <= Math.abs(ps[1].cx - ball.tcx)) ? ps[0] : ps[1];
     const c=cfg();
-    responsible.willMiss = (shotCount>=2) && (Math.random() < (c.missBase + shotCount*c.missRamp));
+    // hand-battle pressure: each rapid exchange makes the next dig harder
+    responsible.willMiss = (shotCount>=2) && (Math.random() < (c.missBase + shotCount*c.missRamp + (handBattle>0? 0.05*hbCount : 0)));
     responsible.missDir = Math.random()<0.5?-1:1;
   }
 
@@ -371,17 +385,28 @@
     const rt = 1-fromTeam, c=cfg();
     let tcx, tcy, T, flat=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
-    if(type==='serve'){ tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56; }
+    if(type==='serve'){
+      tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56;
+      if(quality==='perfect'){ tcy = rt===1?0.94:0.06; T=46; }             // deep laser
+      else if(quality==='bad'){                                            // rushed: short or long
+        if(Math.random()<0.5) tcy = rt===1?0.64:0.36;                      // into the kitchen = fault
+        else tcy = rt===1?1.06:-0.06;                                      // sails long = out
+      }
+    }
     else if(type==='return'){ tcy=deep; tcx=(Math.random()-0.5)*1.2; T=48; }
     else if(type==='drop'){ tcy=kitchenIn; tcx=(Math.random()-0.5)*0.9; T=64; }
     else if(type==='dink'){ tcy=kitchenNear; tcx=clamp(ball.cx+(Math.random()-0.5)*0.5,-0.85,0.85); T=52; } // patient dinks
+    else if(type==='lob'){ // high and deep over the net players
+      tcy = rt===1?0.90:0.10; tcx=clamp(-ball.cx*0.4+(Math.random()-0.5)*0.6,-0.85,0.85); T=76;
+    }
     else { // drive / smash / speed-up: at an opponent's body — stays snappy for contrast
       const tgt = team(rt)[Math.random()<0.5?0:1];
       tcx=clamp(tgt.cx+(Math.random()-0.5)*0.2,-0.9,0.9); tcy=clamp(tgt.cy+(rt===1?0.02:-0.02),0.02,0.98);
       T = type==='drive'?32:24; flat=true;
     }
-    // shot quality (human hits): degrade the target for good / bad contact
-    if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.30, -0.95, 0.95); }
+    // shot quality (human rally hits): degrade the target for good / bad contact
+    if(type==='serve'){ /* serve quality handled above */ }
+    else if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.30, -0.95, 0.95); }
     else if(quality==='bad'){
       // a mishit — pops up SHORT into the opponent's attack zone (a juicy sitter)
       tcx = clamp(tcx + (Math.random()-0.5)*0.7, -0.95, 0.95);
@@ -398,8 +423,13 @@
     ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
     assignResponsible(rt);
     // dynamic pace: fast shots wake the sim up; dinks let it settle back to slow
-    const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : 0.06;
+    const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : type==='lob'?0.2 : 0.06;
     paceBoost = Math.max(paceBoost, boost);
+    // speed-up hand battle: fast volley exchange once everyone is at the kitchen
+    if((type==='drive'||type==='smash') && shotCount>=5 && players.filter(p=>p.team===0? p.cy>0.22 : p.cy<0.78).length>=3){
+      if(handBattle<=0){ popup('SPEED UP!', 0, 0.5, 1.2, C.ball, true); intenseFlash=Math.max(intenseFlash,20); shake(1.5*c.shake); }
+      handBattle=46; hbCount++;
+    } else if(type==='dink'||type==='drop'||type==='lob'){ handBattle=0; hbCount=0; }
     // fx
     if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16); }
     else if(type==='drive'){ sfx.pock(); shake(1.2*c.shake); }
@@ -407,12 +437,22 @@
     else sfx.pock();
   }
 
-  function serverHit(){
+  function serverHit(quality){
     const sp = team(servingTeam)[serverIdx];
     sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1;
     shotCount=1;
-    launch(servingTeam,'serve');
+    launch(servingTeam,'serve',quality);
     popup('SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
+  }
+
+  function lockServe(){
+    if(serveMeter.locked>=0) return;
+    const pos=meterPos(), d=Math.abs(pos-0.5);
+    serveMeter.locked=pos; serveMeter.hold=14;
+    serveMeter.quality = d<0.10?'perfect' : d<0.28?undefined : 'bad';
+    popup(d<0.10?'PERFECT!':d<0.28?'GOOD':'RUSHED!', HUMAN.cx, HUMAN.cy, 1.0,
+          d<0.10?'#7bff8a':d<0.28?C.ball:C.p1, d<0.10);
+    sfx.pock();
   }
 
   function doReturn(rt, p, forcedType, quality){
@@ -422,10 +462,17 @@
     if(forcedType) type=forcedType;         // human-chosen shot
     else if(shotCount===2) type='return';
     else if(shotCount===3) type='drop';
+    else if(ball.cz>0.85){                  // ball sitting up high: overhead punish
+      type='smash'; popup('OVERHEAD!', ball.cx, ball.cy, ball.cz+0.5, rt===0?C.p1:C.p2, true);
+    }
+    else if(handBattle>0){                  // in a hand battle: counter fire
+      type = Math.random()<0.25?'smash':'drive';
+    }
     else { // net battle
       const atNet = rt===0 ? p.cy < 0.42 : p.cy > 0.58;
       const sp = cfg().spdup + shotCount*0.012;
-      if(atNet && shotCount>=4 && Math.random() < sp) type='smash';
+      if(atNet && shotCount>=4 && Math.random() < sp) type = Math.random()<0.5?'drive':'smash'; // speed-up!
+      else if(!atNet && Math.random()<0.10){ type='lob'; popup('LOB!', ball.cx, ball.cy, ball.cz+0.4, rt===0?C.p1:C.p2, false); }
       else type='dink';
     }
     if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; }
@@ -444,7 +491,7 @@
     burstCourt(ball.cx, ball.cy, 12, '#d9c9a0', 2.2, true);
     shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
     if(reason==='NET') sfx.net(); else sfx.point();
-    ball.active=false;
+    ball.active=false; handBattle=0; hbCount=0;
     prevServing=servingTeam;
     if(scored){
       serverIdx=1-serverIdx;                 // server keeps serving, switching courts
@@ -493,8 +540,8 @@
       let tx=p.cx, ty=p.cy, spdMul=1;
       if(p===responsible && ball.active && p.team===rt){
         tx = ball.tcx; ty = netCy(rt);
-        if(shotCount<=2 && ball.bounced===0){
-          // two-bounce rule: set up BEHIND the landing spot and take it off the bounce
+        if(ball.bounced===0 && (shotCount<=2 || (rt===1? ball.tcy>0.78 : ball.tcy<0.22))){
+          // two-bounce rule / deep lob: scramble BEHIND the landing spot, take it off the bounce
           ty = ball.tcy + (rt===0? -0.06 : 0.06);
         }
         // short ball (dink/drop): hold the kitchen line until it bounces, then step in
@@ -616,6 +663,7 @@
     else { shakeMag=0; shakeX=0; shakeY=0; }
     if(flash>0) flash*= reducedMotion?0.86:0.80;
     if(paceBoost>0.002) paceBoost*=0.90; else paceBoost=0;   // ease back toward slow
+    if(handBattle>0){ handBattle--; paceBoost=Math.max(paceBoost,0.85); if(handBattle===0) hbCount=0; }
     if(crowdJump>0) crowdJump--; if(gameBanner>0) gameBanner--; if(intenseFlash>0) intenseFlash--;
     for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=p.g; if(--p.life<=0) particles.splice(i,1); }
     for(let i=popups.length-1;i>=0;i--){ const q=popups[i]; q.y+=q.vy; if(--q.life<=0) popups.splice(i,1); }
@@ -630,6 +678,11 @@
       case 'serve':
         updatePlayers();
         if(phaseTimer>0) phaseTimer--; else { serverHit(); phase='play'; }
+        break;
+      case 'serveMeter':   // human times the serve: needle oscillates until locked
+        updatePlayers();
+        serveMeter.t++;
+        if(serveMeter.locked>=0 && --serveMeter.hold<=0){ serverHit(serveMeter.quality); phase='play'; }
         break;
       case 'play':
         updatePlayers(); updateBall();
@@ -789,8 +842,9 @@
     if(phase==='serve'){ const sc=servingTeam===0?C.p1:C.p2; if(frame%20<12) px(servingTeam===0?30:W-36,12,3,3,sc); }
   }
 
-  function drawIntenseEdges(){ if(rally<8 && intenseFlash<=0) return; if(reducedMotion) return;
-    const a=intenseFlash>0?0.4:0.10+0.07*Math.sin(frame*0.3); ctx.fillStyle=`rgba(255,83,71,${Math.max(0,a)})`;
+  function drawIntenseEdges(){ if(rally<8 && intenseFlash<=0 && handBattle<=0) return; if(reducedMotion) return;
+    const a = handBattle>0 ? 0.3+0.15*Math.sin(frame*0.5) : intenseFlash>0?0.4:0.10+0.07*Math.sin(frame*0.3);
+    ctx.fillStyle=`rgba(255,83,71,${Math.max(0,a)})`;
     ctx.fillRect(0,HUD_H,3,nearY-HUD_H); ctx.fillRect(W-3,HUD_H,3,nearY-HUD_H); }
 
   function drawGameBanner(){ if(gameBanner<=0) return; ctx.fillStyle='rgba(8,6,26,0.72)'; ctx.fillRect(0,HUD_H,W,H-HUD_H);
@@ -829,15 +883,29 @@
       if(HUMAN.swinging>0){ px(zx-1,zy-1,2,2,'#fff'); }
     }
 
+    // serve meter: oscillating needle — tap any shot button to lock it
+    if(phase==='serveMeter'){
+      const x0=78, w=100, y=164;
+      px(x0-3,y-3,w+6,12,'rgba(8,6,26,0.85)');
+      px(x0,y,w,6,'#5a1f24');                 // rushed (red)
+      px(x0+w*0.22,y,w*0.56,6,'#6b5c17');     // good (yellow)
+      px(x0+w*0.40,y,w*0.20,6,'#1f6b31');     // perfect (green)
+      const pos = serveMeter.locked>=0? serveMeter.locked : meterPos();
+      const nc = serveMeter.locked<0 ? '#ffffff'
+        : serveMeter.quality==='perfect' ? '#7bff8a' : serveMeter.quality==='bad' ? C.p1 : C.ball;
+      px(x0+pos*w-1,y-3,2,12,nc);
+      if(serveMeter.locked<0 && frame%20<12) textC('TAP TO SERVE',128,y-13,1,C.ball);
+    }
+
     // hint bar along the apron
     px(0,184,W,8,'rgba(8,6,26,0.72)');
     const cur = humanShotTimer>0 ? humanShotType : null;
     text('WASD',3,185,1,C.muted);
-    const shots=[['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash']];
-    let x=48;
+    const shots=[['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash'],['U','LOB','lob']];
+    let x=40;
     for(let i=0;i<shots.length;i++){ const on=cur===shots[i][2];
-      text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:C.muted); x+=42; }
-    if(phase==='serve') text(servingTeam===0?'YOUR SERVE':'RECEIVE', W-70, 185, 1, C.p1);
+      text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:C.muted);
+      x += 18 + shots[i][1].length*6; }
   }
 
   function drawPaused(){ ctx.fillStyle='rgba(8,6,26,0.6)'; ctx.fillRect(0,0,W,H);
@@ -890,11 +958,14 @@
   function setControl(on){
     controlMode=on; ensureAudio();
     if(on){ running=true; syncPlay(); cv.focus(); }
+    else if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; }  // hand the serve back to the AI
     btnControl.textContent = on ? '🤖 Watch' : '🎮 Take Control';
   }
   btnControl.addEventListener('click',()=>setControl(!controlMode));
-  // a shot = swing NOW (opens a short timing window); positioning grades it on contact
+  // a shot = swing NOW (opens a short timing window); positioning grades it on contact.
+  // during the serve meter, any shot press locks the needle instead.
   function doSwing(t){ if(!controlMode) return;
+    if(phase==='serveMeter'){ lockServe(); return; }
     HUMAN.swingShot=t; HUMAN.swinging=13; HUMAN.swing=1; humanShotType=t; humanShotTimer=22; }
   const MOVE_KEYS = ['arrowup','arrowdown','arrowleft','arrowright',' '];
   window.addEventListener('keydown',(e)=>{
@@ -905,6 +976,7 @@
     if(k==='j') doSwing('dink');
     else if(k==='k') doSwing('drive');
     else if(k==='l') doSwing('smash');
+    else if(k==='u') doSwing('lob');
     else if(k===' ') doSwing(HUMAN.cy<0.40?'dink':'drive');  // context swing
   });
   window.addEventListener('keyup',(e)=>{ keys[e.key.toLowerCase()]=false; });
@@ -930,7 +1002,7 @@
   stickZone.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) setStick(e); });
   stickZone.addEventListener('pointerup',e=>{ if(e.pointerId===stickId) clearStick(); });
   stickZone.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });
-  for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash']]){
+  for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash'],['tbLob','lob']]){
     document.getElementById(id).addEventListener('pointerdown',e=>{
       e.preventDefault(); if(!controlMode) setControl(true); doSwing(t); });
   }
