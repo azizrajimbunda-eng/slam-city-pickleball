@@ -155,7 +155,6 @@
     <div class="deck">
       <button class="pix" id="btnControl" data-accent="p1">🎮 Take Control</button>
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
-      <button class="pix" id="btnIntensity" data-accent="p1">⚡ Chill</button>
       <button class="pix" id="btnSfx">♪ SFX Off</button>
       <button class="pix" id="btnReset">↺ Reset</button>
       <span class="spacer"></span>
@@ -254,16 +253,11 @@
   function px(x,y,w,h,color){ ctx.fillStyle=color; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
 
   // ================= config =================
-  // `pace` is a true global time-scale: it dilates ball + players together, so the
-  // whole match plays slower without changing rally dynamics. Lower = slower.
-  const CFG = {
-    CHILL:  { name:'CHILL',  pace:0.34, missBase:0.009, missRamp:0.012, spdup:0.08, shake:0.5,  bob:0.55 },
-    NORMAL: { name:'NORMAL', pace:0.48, missBase:0.014, missRamp:0.017, spdup:0.13, shake:0.9,  bob:0.8  },
-    INTENSE:{ name:'INTENSE',pace:0.70, missBase:0.022, missRamp:0.026, spdup:0.22, shake:1.35, bob:1.25 }
-  };
-  const order=['CHILL','NORMAL','INTENSE'];
-  let intensityKey='CHILL';           // pickleball is a slow game by default
-  const cfg=()=>CFG[intensityKey];
+  // `pace` is a true global time-scale: it dilates ball + players together.
+  // One tuned feel, like the real sport: patient dink-battle base that the
+  // dynamic paceBoost surges toward FAST_PACE on drives, smashes and net battles.
+  const TUNE = { pace:0.45, missBase:0.012, missRamp:0.015, spdup:0.11, shake:0.9, bob:0.8 };
+  const cfg=()=>TUNE;
 
   // Dynamic pace: base is slow (dinks), but drives/smashes/net attacks briefly
   // speed the whole sim up, then it eases back to slow. curPace() is the live time-scale.
@@ -975,8 +969,7 @@
 
   // ================= controls =================
   const btnControl=document.getElementById('btnControl'), btnPlay=document.getElementById('btnPlay'),
-        btnIntensity=document.getElementById('btnIntensity'), btnSfx=document.getElementById('btnSfx'),
-        btnReset=document.getElementById('btnReset');
+        btnSfx=document.getElementById('btnSfx'), btnReset=document.getElementById('btnReset');
   const syncPlay=()=>{ btnPlay.textContent=running?'⏸ Pause':'▶ Play'; };
   btnPlay.addEventListener('click',()=>{ ensureAudio(); running=!running; syncPlay(); });
 
@@ -1035,8 +1028,6 @@
     document.getElementById(id).addEventListener('pointerdown',e=>{
       e.preventDefault(); if(!controlMode) setControl(true); doSwing(t); });
   }
-  btnIntensity.addEventListener('click',()=>{ const i=order.indexOf(intensityKey); intensityKey=order[(i+1)%order.length];
-    const n=CFG[intensityKey].name; btnIntensity.textContent='⚡ '+n.charAt(0)+n.slice(1).toLowerCase(); });
   btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
     btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
   btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
