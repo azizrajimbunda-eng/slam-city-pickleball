@@ -287,7 +287,10 @@
   const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, trail:[] };
 
   let score=[0,0], rally=0, maxRally=0, shotCount=0;
-  let servingTeam=0, serverIdx=0, prevServing=0;
+  // authentic serve state: serverNum is the "1" or "2" in the score call (e.g. 4-2-1);
+  // a game opens with the first team on server 2 only (the 0-0-2 rule)
+  let servingTeam=0, serverIdx=1, prevServing=0, serverNum=2, firstTurn=true;
+  const scoreCall=()=> score[servingTeam]+'-'+score[1-servingTeam]+'-'+serverNum;
   let phase='serve', phaseTimer=40, lastReason='POINT';
   let responsible=null, matchOver=false;
 
@@ -324,6 +327,7 @@
   // ================= point / serve flow =================
   function reset(){
     score=[0,0]; rally=0; maxRally=0; servingTeam=0; prevServing=0;
+    serverNum=2; firstTurn=true; serverIdx=1;   // games open at 0-0-2
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     startPoint();
   }
@@ -349,6 +353,8 @@
     const sp = team(servingTeam)[serverIdx];
     ball.cx = sp.lane*0.45; ball.cy = baselineCy(servingTeam); ball.cz = HIT_Z;
     ball.tcx = tcx; ball.tcy = baselineCy(rt);
+    // referee announces the score call
+    popup(scoreCall(), 0, 0.52, 1.3, servingTeam===0?C.p1:C.p2, false);
     phase='serve'; phaseTimer = reducedMotion? 30 : 38;
   }
 
@@ -430,20 +436,30 @@
 
   function scorePoint(winner, reason){
     lastReason=reason||'POINT';
-    score[winner]++;
     const col=winner===0?C.p1:C.p2;
+    // side-out scoring: only the serving team can score
+    const scored = winner===servingTeam;
+    if(scored) score[winner]++;
     popup(lastReason, ball.cx, ball.cy, ball.cz+0.4, col, true);
     burstCourt(ball.cx, ball.cy, 12, '#d9c9a0', 2.2, true);
     shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
     if(reason==='NET') sfx.net(); else sfx.point();
     ball.active=false;
-    // side-out?
     prevServing=servingTeam;
-    if(winner!==servingTeam){ servingTeam=winner; serverIdx=Math.random()<0.5?0:1; }
-    else { serverIdx=1-serverIdx; }
+    if(scored){
+      serverIdx=1-serverIdx;                 // server keeps serving, switching courts
+    } else if(firstTurn || serverNum===2){
+      // side-out: service passes; new team starts on server 1, right court first
+      servingTeam=winner; serverNum=1; firstTurn=false;
+      serverIdx = servingTeam===0 ? 1 : 0;
+      popup('SIDE OUT', 0, 0.5, 1.1, col, true);
+    } else {
+      serverNum=2; serverIdx=1-serverIdx;    // first fault: partner serves
+      popup('2ND SERVER', 0, 0.5, 1.1, col, false);
+    }
     phase='dead'; phaseTimer= reducedMotion?40:54;
     const other=1-winner;
-    if(score[winner]>=11 && score[winner]-score[other]>=2){
+    if(scored && score[winner]>=11 && score[winner]-score[other]>=2){
       gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
     }
   }
@@ -477,8 +493,12 @@
       let tx=p.cx, ty=p.cy, spdMul=1;
       if(p===responsible && ball.active && p.team===rt){
         tx = ball.tcx; ty = netCy(rt);
-        // if the shot is short (dink/drop) meet it closer to the net line at the ball's landing depth
-        if(Math.abs(ball.tcy-0.5) < 0.22) ty = ball.tcy + (rt===0? -0.02: 0.02);
+        if(shotCount<=2 && ball.bounced===0){
+          // two-bounce rule: set up BEHIND the landing spot and take it off the bounce
+          ty = ball.tcy + (rt===0? -0.06 : 0.06);
+        }
+        // short ball (dink/drop): hold the kitchen line until it bounces, then step in
+        else if(Math.abs(ball.tcy-0.5) < 0.22) ty = ball.bounced>0 ? ball.tcy + (rt===0? -0.02: 0.02) : (rt===0? KN-0.02 : KF+0.02);
         else ty = lerp(netCy(rt), ball.tcy, 0.5);
         if(p.willMiss){ tx += p.missDir*0.28; }
         spdMul=1.15;
@@ -530,8 +550,17 @@
       const near = Math.abs(ball.cy-pl.cy) < 0.06;
       return (crossed||near) && ball.cz>=-0.05 && ball.cz<1.2 && Math.abs(ball.cx-pl.cx) <= reach;
     };
+    const inKitchen = pl => pl.team===0 ? pl.cy>KN : pl.cy<KF;
     // human hit — must be mid-swing (timing); positioning grades the shot
     if(controlMode && rt===0 && HUMAN.swinging>0 && inReach(HUMAN, 0.22)){
+      // rulebook first: volleys are illegal before the two-bounce shots have bounced,
+      // and always illegal with feet in the kitchen
+      if(ball.bounced===0 && shotCount<=2){
+        HUMAN.swinging=0; ball.active=false; scorePoint(1,'TWO BOUNCE!'); return true;
+      }
+      if(ball.bounced===0 && inKitchen(HUMAN)){
+        HUMAN.swinging=0; ball.active=false; scorePoint(1,'KITCHEN!'); return true;
+      }
       const dxAbs=Math.abs(ball.cx-HUMAN.cx);
       let err=dxAbs/0.20;
       if(ball.cz>0.95) err += (ball.cz-0.95)*0.7;    // high ball is tougher to control
@@ -543,9 +572,11 @@
             HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
       doReturn(0, HUMAN, type, q); return true;
     }
-    // AI responsible player volleys as the ball crosses their depth
+    // AI responsible player hits as the ball crosses their depth — but obeys the
+    // two-bounce rule and never volleys from inside the kitchen (waits for the bounce)
     if(responsible && responsible.team===rt && !(controlMode && responsible===HUMAN) && inReach(responsible, 0.17)){
-      doReturn(rt, responsible); return true;
+      const mustBounce = ball.bounced===0 && (shotCount<=2 || inKitchen(responsible));
+      if(!mustBounce){ doReturn(rt, responsible); return true; }
     }
     // out of bounds
     if(Math.abs(ball.cx)>1.03 || ball.cy<-0.05 || ball.cy>1.05){
@@ -555,15 +586,20 @@
     if(ball.cz<=0){
       ball.cz=0;
       const inBounds = Math.abs(ball.cx)<=1.0 && ball.cy>=0 && ball.cy<=1;
-      if(inBounds && shotCount<=2 && ball.bounced<1){
+      if(!inBounds){ ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true; }
+      if(ball.bounced<1){
+        // the serve must clear the kitchen (line included)
+        if(shotCount===1){
+          const shortServe = rt===0 ? (ball.cy>=KN && ball.cy<=0.5) : (ball.cy>=0.5 && ball.cy<=KF);
+          if(shortServe){ ball.active=false; scorePoint(rt,'KITCHEN!'); return true; }
+        }
+        // any ball may bounce once — dink battles live off the kitchen bounce
         ball.bounced++; ball.vz = -ball.vz*0.52; ball.vx*=0.86; ball.vy*=0.86;
         burstCourt(ball.cx,ball.cy,3,'#cbe9df',1.0,true);
         return false;
       }
-      ball.active=false;
-      if(inBounds) scorePoint(ball.lastTeam,'POINT');
-      else scorePoint(1-ball.lastTeam,'OUT');
-      return true;
+      // second touch of the court = rally over, hitter wins it
+      ball.active=false; scorePoint(ball.lastTeam,'POINT'); return true;
     }
     return false;
   }
@@ -585,19 +621,25 @@
     for(let i=popups.length-1;i>=0;i--){ const q=popups[i]; q.y+=q.vy; if(--q.life<=0) popups.splice(i,1); }
   }
 
+  // phase state machine: each case is one game state; new states (serve meter,
+  // hand battles) slot in as new cases
   function update(){
     frame++;
     if(humanShotTimer>0) humanShotTimer--;
-    if(phase==='serve'){
-      updatePlayers();
-      if(phaseTimer>0) phaseTimer--; else { serverHit(); phase='play'; }
-    } else if(phase==='play'){
-      updatePlayers(); updateBall();
-    } else { // 'dead'
-      updatePlayers();
-      if(phaseTimer>0) phaseTimer--;
-      else if(matchOver){ reset(); }
-      else { startPoint(); }
+    switch(phase){
+      case 'serve':
+        updatePlayers();
+        if(phaseTimer>0) phaseTimer--; else { serverHit(); phase='play'; }
+        break;
+      case 'play':
+        updatePlayers(); updateBall();
+        break;
+      case 'dead':
+        updatePlayers();
+        if(phaseTimer>0) phaseTimer--;
+        else if(matchOver) reset();
+        else startPoint();
+        break;
     }
     updateEffects();
   }
@@ -742,6 +784,8 @@
     for(let i=0;i<seg;i++){ const col=i<2?C.courtL:i<4?C.ball:C.p1; px(barX+34+i*5,barY,4,6,i<filled?col:'#241c3d'); }
     const pulse=rally>=8&&!reducedMotion&&(frame%8<4); textC('x'+rally,W/2,barY,1,pulse?C.ball:C.ink);
     text('BEST',W-64,barY,1,C.muted); text('x'+maxRally,W-64+30,barY,1,C.p2);
+    // official score call (server score - receiver score - server number)
+    text(scoreCall(), 4, barY, 1, servingTeam===0?C.p1:C.p2);
     if(phase==='serve'){ const sc=servingTeam===0?C.p1:C.p2; if(frame%20<12) px(servingTeam===0?30:W-36,12,3,3,sc); }
   }
 
@@ -761,13 +805,17 @@
     ctx.fillStyle=C.ball;
     ctx.beginPath(); ctx.moveTo(pr.sx-3,my-4); ctx.lineTo(pr.sx+3,my-4); ctx.lineTo(pr.sx,my); ctx.closePath(); ctx.fill();
     textC('YOU', pr.sx, my-11, 1, C.ball);
+    // standing in the kitchen: volleying from here is a fault
+    if(HUMAN.cy>KN && (frame%14<8)) textC('NVZ!', pr.sx, Math.round(pr.gy+3), 1, C.p1);
 
     // strike-zone timing cue: appears when a ball is heading to you.
     // Bracket shrinks as the ball nears and turns GREEN when you're aligned — swing then.
     if(ball.active && ball.lastTeam===1 && ball.cy>HUMAN.cy-0.03 && ball.vy<0 && (ball.cy-HUMAN.cy)<0.45){
       const zp=proj(HUMAN.cx, HUMAN.cy+0.02, 0.5);
       const dxAbs=Math.abs(ball.cx-HUMAN.cx);
-      const col = dxAbs<0.07 ? '#7bff8a' : dxAbs<0.16 ? C.ball : C.p1;
+      const mustWait = ball.bounced===0 && shotCount<=2;   // two-bounce rule: no volley yet
+      const col = mustWait ? C.muted : dxAbs<0.07 ? '#7bff8a' : dxAbs<0.16 ? C.ball : C.p1;
+      if(mustWait) textC('WAIT', zp.sx, zp.sy-14, 1, C.muted);
       const r = 3 + Math.round(5*clamp((ball.cy-HUMAN.cy)/0.45,0,1));
       ctx.strokeStyle=col; ctx.lineWidth=1;
       const zx=Math.round(zp.sx), zy=Math.round(zp.sy);
