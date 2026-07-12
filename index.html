@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLAM CITY — 8-Bit Pickleball</title>
+</head>
+<body>
+<style>
+  :root{
+    --indigo-950:#08061a; --indigo-900:#0b0820; --indigo-800:#140f2b; --indigo-700:#241a44;
+    --panel:#0d0a1e; --bezel:#171227; --bezel-hi:#2a2140;
+    --p1:#ff5347; --p2:#37d0e8; --ball:#f6e94a; --court:#17a08a;
+    --ink:#f3efe0; --muted:#8b83b0; --line:#2c2456;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sign: "Arial Narrow", "Helvetica Neue Condensed", "Roboto Condensed", system-ui, sans-serif;
+  }
+  html{ color-scheme: dark; }
+  body{
+    margin:0; min-height:100vh; color:var(--ink); font-family:var(--mono);
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #2a1c4d 0%, transparent 55%),
+      radial-gradient(1000px 700px at 90% 0%, #3a1740 0%, transparent 50%),
+      linear-gradient(180deg, var(--indigo-900) 0%, var(--indigo-950) 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:28px 16px 40px; box-sizing:border-box; gap:18px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .stage{ width:100%; max-width:720px; display:flex; flex-direction:column; gap:14px; }
+
+  .marquee{
+    align-self:center; text-align:center; line-height:1;
+    font-family:var(--sign); font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    font-size:clamp(15px,3.2vw,22px); color:#fff;
+    text-shadow:0 0 6px rgba(55,208,232,.55), 0 0 22px rgba(255,83,71,.35);
+    padding:8px 16px; border-radius:3px;
+    background:linear-gradient(180deg,#1c1636,#0e0a20);
+    border:2px solid var(--bezel-hi);
+    box-shadow:0 0 0 2px #0a0818, 0 8px 26px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .marquee .diamond{ color:var(--ball); text-shadow:0 0 8px rgba(246,233,74,.7); }
+  .marquee .sub{ display:block; font-size:.52em; letter-spacing:.42em; color:var(--muted);
+    text-shadow:none; margin-top:5px; padding-left:.42em; }
+
+  .cabinet{
+    background:linear-gradient(180deg,#1a1430 0%, #0e0a20 100%);
+    border:2px solid var(--bezel-hi); border-radius:14px; padding:16px 16px 12px;
+    box-shadow:0 24px 60px -18px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.05);
+    position:relative;
+  }
+  .cabinet::before, .cabinet::after{
+    content:""; position:absolute; top:20px; width:8px; height:44px; border-radius:4px;
+    background:repeating-linear-gradient(180deg,#000 0 2px,#241c3d 2px 5px); opacity:.7;
+  }
+  .cabinet::before{ left:6px; } .cabinet::after{ right:6px; }
+
+  .screen{
+    position:relative; border-radius:8px; overflow:hidden;
+    background:#05040f; border:2px solid #05040f;
+    box-shadow:inset 0 0 0 2px #000, inset 0 0 34px rgba(0,0,0,.9);
+  }
+  canvas{ display:block; width:100%; height:auto; aspect-ratio:256/192;
+    image-rendering:pixelated; image-rendering:crisp-edges; }
+  .crt{ position:absolute; inset:0; pointer-events:none; }
+  .crt.lines{ background:repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px); mix-blend-mode:multiply; opacity:.8; }
+  .crt.vig{ background:radial-gradient(120% 120% at 50% 42%, transparent 56%, rgba(0,0,0,.55) 100%); }
+  .crt.glare{ background:linear-gradient(115deg, rgba(255,255,255,.06) 0%, transparent 30%); }
+
+  .deck{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; align-items:center; }
+  .deck .spacer{ flex:1 1 auto; }
+  button.pix{
+    appearance:none; cursor:pointer; font-family:var(--mono); font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.12em; color:var(--ink);
+    background:linear-gradient(180deg,#211a3c,#140f28); border:2px solid var(--line);
+    padding:9px 12px; border-radius:4px; line-height:1;
+    box-shadow:inset 0 -3px 0 rgba(0,0,0,.5), 0 2px 0 #05040f; transition:transform .05s, border-color .12s, color .12s;
+  }
+  button.pix:hover{ border-color:var(--p2); color:#fff; }
+  button.pix:active{ transform:translateY(2px); box-shadow:inset 0 -1px 0 rgba(0,0,0,.5), 0 0 0 #05040f; }
+  button.pix:focus-visible{ outline:2px solid var(--ball); outline-offset:2px; }
+  button.pix[data-accent="p1"]:hover{ border-color:var(--p1); }
+  button.pix[data-accent="ball"]:hover{ border-color:var(--ball); }
+  .tag{ font-size:10px; letter-spacing:.16em; color:var(--muted); text-transform:uppercase;
+    border:1px solid var(--line); padding:6px 8px; border-radius:4px; }
+  .tag b{ color:var(--ball); }
+
+  .caption{ max-width:640px; align-self:center; text-align:center; color:var(--muted);
+    font-size:12.5px; line-height:1.7; }
+  .caption b{ color:var(--ink); font-weight:600; }
+  .caption .foot{ display:block; margin-top:8px; font-size:11px; letter-spacing:.06em; color:#5f5885; }
+
+  @media (max-width:520px){ .deck button.pix{ flex:1 1 44%; } }
+</style>
+
+<div class="stage">
+  <div class="marquee">
+    <span class="diamond">◆</span> National Pickle Open <span class="diamond">◆</span>
+    <span class="sub">Doubles Final · Center Court</span>
+  </div>
+
+  <div class="cabinet">
+    <div class="screen">
+      <canvas id="game" width="256" height="192" aria-label="An 8-bit broadcast-view doubles pickleball match"></canvas>
+      <div class="crt lines"></div>
+      <div class="crt vig"></div>
+      <div class="crt glare"></div>
+    </div>
+
+    <div class="deck">
+      <button class="pix" id="btnControl" data-accent="p1">🎮 Take Control</button>
+      <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
+      <button class="pix" id="btnIntensity" data-accent="p1">⚡ Chill</button>
+      <button class="pix" id="btnSfx">♪ SFX Off</button>
+      <button class="pix" id="btnReset">↺ Reset</button>
+      <span class="spacer"></span>
+      <span class="tag">Doubles · <b>WASD + J/K/L</b></span>
+    </div>
+  </div>
+
+  <p class="caption">
+    Broadcast view, from behind the baseline — just like the real thing. Four players, a live
+    <b>third-shot drop</b>, a <b>kitchen dink battle</b>, then someone <b>speeds it up</b> and the hands fly.
+    Hit <b>🎮 Take Control</b> to grab the near-left red paddle. <b>WASD</b> to move; press
+    <b>J</b> dink · <b>K</b> drive · <b>L</b> smash to <b>swing</b>. It's about timing: line up the
+    <b>strike bracket</b> over the ball and swing as it turns green — good positioning = a <b>PERFECT</b>
+    shot; sloppy timing pops up a <b>sitter</b> the CPU will pounce on. Your AI partner covers the rest.
+    <span class="foot">Slow by default (real pickleball) — it bursts fast on drives, smashes and net battles. Click the screen first so it hears your keys.</span>
+  </p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const cv = document.getElementById('game');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const W = 256, H = 192;
+
+  const C = {
+    p1:'#ff5347', p1d:'#b32d2a', p1l:'#ff8a80',
+    p2:'#37d0e8', p2d:'#1d7c96', p2l:'#8ef0ff',
+    ball:'#f6e94a', balld:'#b7a417',
+    court:'#1b9e8b', courtD:'#0f6b5c', kitchen:'#177f6f', courtL:'#2fc0a8',
+    line:'#eef6f2', net:'#eef4f5', post:'#c9d3d5',
+    skin:'#f0b892', skinD:'#c98a63',
+    ink:'#f3efe0', muted:'#8b83b0', dark:'#0a0818',
+    wall:'#170f36', wall2:'#0e0926', crowdA:'#2a2350', crowdB:'#3a2f66',
+    shadow:'rgba(4,3,14,0.32)'
+  };
+
+  // ---------- broadcast projection ----------
+  const CENTER_X = 128, nearY = 178, farY = 70, nearHW = 104, farHW = 40, K = 1.25;
+  const FAR_HS = 9, NEAR_HS = 24, FAR_SC = 0.60, NEAR_SC = 1.15;
+  const HUD_H = 30;
+  const NET_H = 0.60, GZ = 0.006, HIT_Z = 0.5;
+  const KN = 0.341, KF = 0.659; // kitchen (non-volley) lines
+  const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+  const lerp = (a,b,t)=> a + (b-a)*t;
+  function groundY(cy){ const P = cy*(1+K)/(1+cy*K); return nearY + (farY-nearY)*P; }
+  function proj(cx, cy, cz){
+    const gy = groundY(cy);
+    const fr = (gy - farY) / (nearY - farY);
+    const hw = lerp(farHW, nearHW, fr);
+    const hs = lerp(FAR_HS, NEAR_HS, fr);
+    const sc = lerp(FAR_SC, NEAR_SC, fr);
+    const sx = CENTER_X + cx * hw;
+    const sy = gy - (cz||0) * hs;
+    return { sx, sy, gy, fr, hw, hs, sc };
+  }
+
+  const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ================= 5x7 bitmap font =================
+  const FNT = {
+    ' ':["     ","     ","     ","     ","     ","     ","     "],
+    'A':[" ### ","#   #","#   #","#####","#   #","#   #","#   #"],'B':["#### ","#   #","#   #","#### ","#   #","#   #","#### "],
+    'C':[" ### ","#   #","#    ","#    ","#    ","#   #"," ### "],'D':["#### ","#   #","#   #","#   #","#   #","#   #","#### "],
+    'E':["#####","#    ","#    ","#### ","#    ","#    ","#####"],'F':["#####","#    ","#    ","#### ","#    ","#    ","#    "],
+    'G':[" ### ","#   #","#    ","# ###","#   #","#   #"," ### "],'H':["#   #","#   #","#   #","#####","#   #","#   #","#   #"],
+    'I':[" ### ","  #  ","  #  ","  #  ","  #  ","  #  "," ### "],'J':["  ###","   # ","   # ","   # ","   # ","#  # "," ##  "],
+    'K':["#   #","#  # ","# #  ","##   ","# #  ","#  # ","#   #"],'L':["#    ","#    ","#    ","#    ","#    ","#    ","#####"],
+    'M':["#   #","## ##","# # #","#   #","#   #","#   #","#   #"],'N':["#   #","##  #","# # #","#  ##","#   #","#   #","#   #"],
+    'O':[" ### ","#   #","#   #","#   #","#   #","#   #"," ### "],'P':["#### ","#   #","#   #","#### ","#    ","#    ","#    "],
+    'Q':[" ### ","#   #","#   #","#   #","# # #","#  # "," ## #"],'R':["#### ","#   #","#   #","#### ","# #  ","#  # ","#   #"],
+    'S':[" ####","#    ","#    "," ### ","    #","    #","#### "],'T':["#####","  #  ","  #  ","  #  ","  #  ","  #  ","  #  "],
+    'U':["#   #","#   #","#   #","#   #","#   #","#   #"," ### "],'V':["#   #","#   #","#   #","#   #","#   #"," # # ","  #  "],
+    'W':["#   #","#   #","#   #","#   #","# # #","## ##","#   #"],'X':["#   #","#   #"," # # ","  #  "," # # ","#   #","#   #"],
+    'Y':["#   #","#   #"," # # ","  #  ","  #  ","  #  ","  #  "],'Z':["#####","    #","   # ","  #  "," #   ","#    ","#####"],
+    '0':[" ### ","#   #","#  ##","# # #","##  #","#   #"," ### "],'1':["  #  "," ##  ","  #  ","  #  ","  #  ","  #  "," ### "],
+    '2':[" ### ","#   #","    #","   # ","  #  "," #   ","#####"],'3':["#####","   # ","  #  ","   # ","    #","#   #"," ### "],
+    '4':["   # ","  ## "," # # ","#  # ","#####","   # ","   # "],'5':["#####","#    ","#### ","    #","    #","#   #"," ### "],
+    '6':[" ### ","#   #","#    ","#### ","#   #","#   #"," ### "],'7':["#####","    #","   # ","  #  "," #   "," #   "," #   "],
+    '8':[" ### ","#   #","#   #"," ### ","#   #","#   #"," ### "],'9':[" ### ","#   #","#   #"," ####","    #","#   #"," ### "],
+    '!':["  #  ","  #  ","  #  ","  #  ","  #  ","     ","  #  "],':':["     ","  #  ","  #  ","     ","  #  ","  #  ","     "],
+    '.':["     ","     ","     ","     ","     "," ##  "," ##  "],'-':["     ","     ","     ","#####","     ","     ","     "],
+    '*':["  #  ","# # #"," ### ","#####"," ### ","# # #","  #  "],'?':[" ### ","#   #","   # ","  #  ","  #  ","     ","  #  "]
+  };
+  function glyph(ch){ if(ch==='×'||ch==='x') return FNT['X']; return FNT[ch] || FNT[ch.toUpperCase()] || FNT['?']; }
+  function textW(str,s){ return str.length*6*s - s; }
+  function text(str,x,y,s,color){
+    ctx.fillStyle=color; let cx=x;
+    for(let i=0;i<str.length;i++){ const g=glyph(str[i]);
+      for(let r=0;r<7;r++){ const row=g[r]; for(let c=0;c<5;c++){ if(row[c]==='#') ctx.fillRect(cx+c*s,y+r*s,s,s); } }
+      cx+=6*s; }
+    return cx;
+  }
+  function textC(str,cx,y,s,color){ text(str, Math.round(cx-textW(str,s)/2), y, s, color); }
+  function px(x,y,w,h,color){ ctx.fillStyle=color; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
+
+  // ================= config =================
+  // `pace` is a true global time-scale: it dilates ball + players together, so the
+  // whole match plays slower without changing rally dynamics. Lower = slower.
+  const CFG = {
+    CHILL:  { name:'CHILL',  pace:0.34, missBase:0.009, missRamp:0.012, spdup:0.08, shake:0.5,  bob:0.55 },
+    NORMAL: { name:'NORMAL', pace:0.48, missBase:0.014, missRamp:0.017, spdup:0.13, shake:0.9,  bob:0.8  },
+    INTENSE:{ name:'INTENSE',pace:0.70, missBase:0.022, missRamp:0.026, spdup:0.22, shake:1.35, bob:1.25 }
+  };
+  const order=['CHILL','NORMAL','INTENSE'];
+  let intensityKey='CHILL';           // pickleball is a slow game by default
+  const cfg=()=>CFG[intensityKey];
+
+  // Dynamic pace: base is slow (dinks), but drives/smashes/net attacks briefly
+  // speed the whole sim up, then it eases back to slow. curPace() is the live time-scale.
+  let paceBoost=0; const FAST_PACE=0.92;
+  const curPace=()=>lerp(cfg().pace, FAST_PACE, clamp(paceBoost,0,1));
+
+  let running=!reducedMotion, sfxOn=false, frame=0;
+
+  // ================= entities =================
+  // teams: 0 = near (red, bottom), 1 = far (cyan, top)
+  function mkPlayer(team, lane){
+    return { team, lane, cx:lane*0.45, cy: team===0?0.06:0.94, tx:lane*0.45, ty:team===0?0.06:0.94,
+             anim:0, swing:0, paddleSide:1, diving:0,
+             mvx:0, mvy:0, swinging:0, swingShot:null };  // mvx/mvy: smoothed human velocity; swinging: active swing window
+  }
+  const players = [ mkPlayer(0,-1), mkPlayer(0,1), mkPlayer(1,-1), mkPlayer(1,1) ];
+  const team = t => t===0 ? [players[0],players[1]] : [players[2],players[3]];
+
+  // playable mode: human drives one near player, AI covers the partner
+  let controlMode = false;
+  const HUMAN = players[0];
+  const keys = {};
+  let humanShotType = null, humanShotTimer = 0;
+
+  const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, trail:[] };
+
+  let score=[0,0], rally=0, maxRally=0, shotCount=0;
+  let servingTeam=0, serverIdx=0, prevServing=0;
+  let phase='serve', phaseTimer=40, lastReason='POINT';
+  let responsible=null, matchOver=false;
+
+  // effects
+  let shakeMag=0, shakeX=0, shakeY=0, flash=0, crowdJump=0, intenseFlash=0;
+  let gameBanner=0, gameWinner=-1;
+  const particles=[], popups=[];
+
+  function baselineCy(t){ return t===0?0.06:0.94; }
+  function netCy(t){ return t===0?0.30:0.70; }
+
+  // ================= audio =================
+  let actx=null;
+  function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ actx=null; } } }
+  function beep(f,d,type,v){ if(!sfxOn||!actx) return; const t0=actx.currentTime;
+    const o=actx.createOscillator(),g=actx.createGain(); o.type=type||'square'; o.frequency.setValueAtTime(f,t0);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(v||0.07,t0+0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+d); o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+d+0.02); }
+  const sfx={ pock(){beep(520+Math.random()*70,0.05,'square',0.055);}, dink(){beep(720,0.04,'triangle',0.05);},
+    smash(){beep(240,0.10,'sawtooth',0.11); beep(880,0.05,'square',0.05);},
+    point(){beep(330,0.08,'square',0.07); setTimeout(()=>beep(220,0.13,'square',0.07),90);},
+    net(){beep(150,0.12,'square',0.09);}, game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));} };
+
+  // ================= effects helpers =================
+  const shake=m=>{ if(!reducedMotion) shakeMag=Math.max(shakeMag,m); };
+  const doFlash=a=>{ flash=Math.max(flash, reducedMotion?Math.min(a,0.12):a); };
+  function popup(str,cx,cy,cz,color,big){ const p=proj(cx,cy,cz); popups.push({str,x:p.sx,y:p.sy-8,color,life:54,big:!!big,vy:-0.35}); }
+  function burstCourt(cx,cy,n,color,spread,up){ const p=proj(cx,cy,0);
+    for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, sp=Math.random()*spread;
+      particles.push({x:p.sx+Math.cos(a)*2,y:p.gy,vx:Math.cos(a)*sp,vy:(up?-Math.random()*spread*1.4:Math.abs(Math.sin(a))*sp*0.5),life:24+Math.random()*14,g:0.14,color,sz:1+((Math.random()*2)|0)}); } }
+  function confetti(){ const cols=[C.p1,C.p2,C.ball,C.courtL,'#ffffff'];
+    for(let i=0;i<50;i++) particles.push({x:20+Math.random()*216,y:HUD_H+Math.random()*20,vx:(Math.random()-.5)*2.2,vy:Math.random()*1.2,life:70+Math.random()*40,g:0.08,color:cols[(Math.random()*cols.length)|0],sz:2}); }
+
+  // ================= point / serve flow =================
+  function reset(){
+    score=[0,0]; rally=0; maxRally=0; servingTeam=0; prevServing=0;
+    particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
+    startPoint();
+  }
+
+  function startPoint(){
+    shotCount=0; rally=0; ball.active=false; ball.bounced=0; ball.trail.length=0;
+    const rt = 1-servingTeam;
+    // serve target: cross-court deep into receiver's box
+    const serverLane = serverIdx===0? -1 : 1;
+    const tcx = -serverLane*0.5;
+    // formation
+    for(const p of players){
+      if(p.team===servingTeam){ p.cy=p.ty=baselineCy(servingTeam); p.cx=p.tx=p.lane*0.45; }
+      else {
+        // receiver on the target side stays back to return; partner up at the kitchen
+        const isReturner = (Math.sign(p.lane) === Math.sign(tcx)) || (tcx===0);
+        if(isReturner){ p.cy=p.ty=baselineCy(rt); p.cx=p.tx=Math.sign(tcx)*0.42; }
+        else { p.cy=p.ty=netCy(rt); p.cx=p.tx=p.lane*0.40; }
+      }
+      p.swing=0; p.diving=0;
+    }
+    // put ball at server
+    const sp = team(servingTeam)[serverIdx];
+    ball.cx = sp.lane*0.45; ball.cy = baselineCy(servingTeam); ball.cz = HIT_Z;
+    ball.tcx = tcx; ball.tcy = baselineCy(rt);
+    phase='serve'; phaseTimer = reducedMotion? 30 : 38;
+  }
+
+  function assignResponsible(rt){
+    // team rt must play the ball; pick the player nearest the target lane
+    const ps = team(rt);
+    responsible = (Math.abs(ps[0].cx - ball.tcx) <= Math.abs(ps[1].cx - ball.tcx)) ? ps[0] : ps[1];
+    const c=cfg();
+    responsible.willMiss = (shotCount>=2) && (Math.random() < (c.missBase + shotCount*c.missRamp));
+    responsible.missDir = Math.random()<0.5?-1:1;
+  }
+
+  function launch(fromTeam, type, quality){
+    const rt = 1-fromTeam, c=cfg();
+    let tcx, tcy, T, flat=false;
+    const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
+    if(type==='serve'){ tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56; }
+    else if(type==='return'){ tcy=deep; tcx=(Math.random()-0.5)*1.2; T=48; }
+    else if(type==='drop'){ tcy=kitchenIn; tcx=(Math.random()-0.5)*0.9; T=64; }
+    else if(type==='dink'){ tcy=kitchenNear; tcx=clamp(ball.cx+(Math.random()-0.5)*0.5,-0.85,0.85); T=52; } // patient dinks
+    else { // drive / smash / speed-up: at an opponent's body — stays snappy for contrast
+      const tgt = team(rt)[Math.random()<0.5?0:1];
+      tcx=clamp(tgt.cx+(Math.random()-0.5)*0.2,-0.9,0.9); tcy=clamp(tgt.cy+(rt===1?0.02:-0.02),0.02,0.98);
+      T = type==='drive'?32:24; flat=true;
+    }
+    // shot quality (human hits): degrade the target for good / bad contact
+    if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.30, -0.95, 0.95); }
+    else if(quality==='bad'){
+      // a mishit — pops up SHORT into the opponent's attack zone (a juicy sitter)
+      tcx = clamp(tcx + (Math.random()-0.5)*0.7, -0.95, 0.95);
+      tcy = rt===1 ? 0.60 : 0.40;      // short, sits up near the net
+      T = Math.max(T, 46); flat=false; // floaty and slow
+    }
+    // T is in sim time-units; the global `pace` time-scale sets actual playback speed.
+    // kinematics from current ball to target, landing (cz~0) after T time-units
+    ball.vx = (tcx - ball.cx)/T;
+    ball.vy = (tcy - ball.cy)/T;
+    let vz = 0.5*GZ*T - (ball.cz)/T;
+    if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
+    ball.vz = vz;
+    ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
+    assignResponsible(rt);
+    // dynamic pace: fast shots wake the sim up; dinks let it settle back to slow
+    const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : 0.06;
+    paceBoost = Math.max(paceBoost, boost);
+    // fx
+    if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16); }
+    else if(type==='drive'){ sfx.pock(); shake(1.2*c.shake); }
+    else if(type==='dink'){ sfx.dink(); }
+    else sfx.pock();
+  }
+
+  function serverHit(){
+    const sp = team(servingTeam)[serverIdx];
+    sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1;
+    shotCount=1;
+    launch(servingTeam,'serve');
+    popup('SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
+  }
+
+  function doReturn(rt, p, forcedType, quality){
+    shotCount++; rally=Math.max(rally,shotCount-1); if(rally>maxRally) maxRally=rally;
+    p.swing=1; p.paddleSide = ball.cx>p.cx?1:-1;
+    let type;
+    if(forcedType) type=forcedType;         // human-chosen shot
+    else if(shotCount===2) type='return';
+    else if(shotCount===3) type='drop';
+    else { // net battle
+      const atNet = rt===0 ? p.cy < 0.42 : p.cy > 0.58;
+      const sp = cfg().spdup + shotCount*0.012;
+      if(atNet && shotCount>=4 && Math.random() < sp) type='smash';
+      else type='dink';
+    }
+    if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; }
+    if(shotCount===3 && !forcedType) popup('drop', ball.cx, ball.cy, ball.cz+0.3, rt===0?C.p1:C.p2, false);
+    launch(rt, type, quality);
+    burstCourt(ball.cx, ball.cy, 2, '#d9c9a0', 1.0, false);
+  }
+
+  function scorePoint(winner, reason){
+    lastReason=reason||'POINT';
+    score[winner]++;
+    const col=winner===0?C.p1:C.p2;
+    popup(lastReason, ball.cx, ball.cy, ball.cz+0.4, col, true);
+    burstCourt(ball.cx, ball.cy, 12, '#d9c9a0', 2.2, true);
+    shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
+    if(reason==='NET') sfx.net(); else sfx.point();
+    ball.active=false;
+    // side-out?
+    prevServing=servingTeam;
+    if(winner!==servingTeam){ servingTeam=winner; serverIdx=Math.random()<0.5?0:1; }
+    else { serverIdx=1-serverIdx; }
+    phase='dead'; phaseTimer= reducedMotion?40:54;
+    const other=1-winner;
+    if(score[winner]>=11 && score[winner]-score[other]>=2){
+      gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
+    }
+  }
+
+  // ================= simulation =================
+  // human movement: fixed, deliberate top speed with acceleration so it never feels twitchy
+  const HMAX=0.0135, HACC=0.0034;
+  function applyHumanMovement(p){
+    let dx=0, dy=0;
+    if(keys['a']||keys['arrowleft']) dx-=1;
+    if(keys['d']||keys['arrowright']) dx+=1;
+    if(keys['w']||keys['arrowup']) dy+=1;      // up-screen = toward the net (higher cy on near side)
+    if(keys['s']||keys['arrowdown']) dy-=1;
+    const tvx=dx*HMAX, tvy=dy*HMAX*0.72;
+    p.mvx += clamp(tvx-p.mvx, -HACC, HACC);    // ease toward target velocity
+    p.mvy += clamp(tvy-p.mvy, -HACC, HACC);
+    p.cx = clamp(p.cx + p.mvx, -0.95, 0.95);
+    p.cy = clamp(p.cy + p.mvy, 0.03, 0.49);    // stay on the near half
+    p.anim += (Math.abs(p.mvx)+Math.abs(p.mvy))*22 + 0.03;
+    p.paddleSide = ball.cx>p.cx ? 1 : -1;
+    if(p.swing>0) p.swing=Math.max(0,p.swing-0.12);
+    if(p.swinging>0) p.swinging--;
+    if(p.diving>0) p.diving--;
+  }
+
+  function updatePlayers(){
+    const rt = ball.active ? 1-ball.lastTeam : -1;
+    for(const p of players){
+      if(controlMode && p===HUMAN){ applyHumanMovement(p); continue; }
+      let tx=p.cx, ty=p.cy, spdMul=1;
+      if(p===responsible && ball.active && p.team===rt){
+        tx = ball.tcx; ty = netCy(rt);
+        // if the shot is short (dink/drop) meet it closer to the net line at the ball's landing depth
+        if(Math.abs(ball.tcy-0.5) < 0.22) ty = ball.tcy + (rt===0? -0.02: 0.02);
+        else ty = lerp(netCy(rt), ball.tcy, 0.5);
+        if(p.willMiss){ tx += p.missDir*0.28; }
+        spdMul=1.15;
+        if(p.willMiss && Math.abs(ball.cx-p.cx)<0.35 && ball.vz<0){ p.diving=8; }
+      } else if(ball.active && p.team===rt){
+        // partner covers the middle / shifts opposite
+        tx = -ball.tcx*0.5; ty = netCy(rt);
+      } else if(ball.active && p.team!==rt){
+        // hitting team advances toward the net after they strike
+        const startShot = (p.team===servingTeam)? 3 : 2;
+        const adv = clamp((shotCount - startShot + 1)/2, 0, 1);
+        ty = lerp(baselineCy(p.team), netCy(p.team), adv);
+        tx = p.lane*0.42;
+      } else {
+        ty=p.ty; tx=p.tx;
+      }
+      tx=clamp(tx,-0.95,0.95); ty=clamp(ty, p.team===0?0.02:0.5, p.team===0?0.5:0.98);
+      const pace=curPace();
+      const mvx=0.035*pace*spdMul, mvy=0.024*pace*spdMul;
+      const dx=clamp(tx-p.cx,-mvx,mvx), dy=clamp(ty-p.cy,-mvy,mvy);
+      p.cx+=dx; p.cy+=dy;
+      p.anim += Math.abs(dx)*18 + Math.abs(dy)*18 + 0.04;
+      if(p.swing>0) p.swing=Math.max(0,p.swing-0.12);
+      if(p.diving>0) p.diving--;
+      if(!reducedMotion && shotCount>=5 && p===responsible && (frame%7===0) && (Math.abs(dx)+Math.abs(dy))>0.006){
+        const pr=proj(p.cx,p.cy,0.8); particles.push({x:pr.sx+(Math.random()-.5)*3,y:pr.sy,vx:(Math.random()-.5)*.5,vy:-0.5-Math.random()*0.4,life:15,g:0.12,color:'#bfe9f2',sz:1});
+      }
+    }
+  }
+
+  function stepBall(sub){
+    const px0=ball.cx, py0=ball.cy;
+    ball.cx += ball.vx*sub; ball.cy += ball.vy*sub; ball.cz += ball.vz*sub; ball.vz -= GZ*sub;
+
+    // net cord: crossing cy=0.5
+    if((py0-0.5)*(ball.cy-0.5) <= 0 && py0!==ball.cy){
+      const f=(0.5-py0)/(ball.cy-py0); const zc=ball.cz - ball.vz*sub*(1-f);
+      const xc=lerp(px0,ball.cx,f);
+      if(zc < NET_H && Math.abs(xc)<1.02){
+        ball.cz=Math.max(0,zc); ball.cy=0.5; ball.active=false;
+        const pp=proj(xc,0.5,zc); particles.push({x:pp.sx,y:pp.sy,vx:0,vy:0,life:10,g:0,color:C.net,sz:2});
+        scorePoint(1-ball.lastTeam,'NET'); return true;
+      }
+    }
+
+    const rt=1-ball.lastTeam;
+    const inReach = (pl, reach) => {
+      const crossed = (py0-pl.cy)*(ball.cy-pl.cy) <= 0 && Math.abs(ball.cy-py0)>0.0001;
+      const near = Math.abs(ball.cy-pl.cy) < 0.06;
+      return (crossed||near) && ball.cz>=-0.05 && ball.cz<1.2 && Math.abs(ball.cx-pl.cx) <= reach;
+    };
+    // human hit — must be mid-swing (timing); positioning grades the shot
+    if(controlMode && rt===0 && HUMAN.swinging>0 && inReach(HUMAN, 0.22)){
+      const dxAbs=Math.abs(ball.cx-HUMAN.cx);
+      let err=dxAbs/0.20;
+      if(ball.cz>0.95) err += (ball.cz-0.95)*0.7;    // high ball is tougher to control
+      if(ball.cz<0.22) err += (0.22-ball.cz)*1.3;    // low, dug-out ball is tougher
+      const q = err<0.40 ? 'perfect' : err<0.78 ? 'good' : 'bad';
+      HUMAN.swinging=0;
+      const type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
+      popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
+            HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
+      doReturn(0, HUMAN, type, q); return true;
+    }
+    // AI responsible player volleys as the ball crosses their depth
+    if(responsible && responsible.team===rt && !(controlMode && responsible===HUMAN) && inReach(responsible, 0.17)){
+      doReturn(rt, responsible); return true;
+    }
+    // out of bounds
+    if(Math.abs(ball.cx)>1.03 || ball.cy<-0.05 || ball.cy>1.05){
+      ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true;
+    }
+    // ground
+    if(ball.cz<=0){
+      ball.cz=0;
+      const inBounds = Math.abs(ball.cx)<=1.0 && ball.cy>=0 && ball.cy<=1;
+      if(inBounds && shotCount<=2 && ball.bounced<1){
+        ball.bounced++; ball.vz = -ball.vz*0.52; ball.vx*=0.86; ball.vy*=0.86;
+        burstCourt(ball.cx,ball.cy,3,'#cbe9df',1.0,true);
+        return false;
+      }
+      ball.active=false;
+      if(inBounds) scorePoint(ball.lastTeam,'POINT');
+      else scorePoint(1-ball.lastTeam,'OUT');
+      return true;
+    }
+    return false;
+  }
+
+  function updateBall(){
+    if(!ball.active) return;
+    const pr=proj(ball.cx,ball.cy,ball.cz);
+    ball.trail.push({x:pr.sx,y:pr.sy}); if(ball.trail.length>9) ball.trail.shift();
+    const pace=curPace(), N=3; for(let i=0;i<N;i++){ if(stepBall(pace/N)) break; }
+  }
+
+  function updateEffects(){
+    if(shakeMag>0.05){ shakeX=(Math.random()*2-1)*shakeMag; shakeY=(Math.random()*2-1)*shakeMag; shakeMag*=0.82; }
+    else { shakeMag=0; shakeX=0; shakeY=0; }
+    if(flash>0) flash*= reducedMotion?0.86:0.80;
+    if(paceBoost>0.002) paceBoost*=0.90; else paceBoost=0;   // ease back toward slow
+    if(crowdJump>0) crowdJump--; if(gameBanner>0) gameBanner--; if(intenseFlash>0) intenseFlash--;
+    for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=p.g; if(--p.life<=0) particles.splice(i,1); }
+    for(let i=popups.length-1;i>=0;i--){ const q=popups[i]; q.y+=q.vy; if(--q.life<=0) popups.splice(i,1); }
+  }
+
+  function update(){
+    frame++;
+    if(humanShotTimer>0) humanShotTimer--;
+    if(phase==='serve'){
+      updatePlayers();
+      if(phaseTimer>0) phaseTimer--; else { serverHit(); phase='play'; }
+    } else if(phase==='play'){
+      updatePlayers(); updateBall();
+    } else { // 'dead'
+      updatePlayers();
+      if(phaseTimer>0) phaseTimer--;
+      else if(matchOver){ reset(); }
+      else { startPoint(); }
+    }
+    updateEffects();
+  }
+
+  // ================= rendering =================
+  function drawStandsAndCrowd(){
+    // back wall behind far baseline
+    const g=ctx.createLinearGradient(0,HUD_H,0,farY); g.addColorStop(0,C.wall); g.addColorStop(1,C.wall2);
+    ctx.fillStyle=g; ctx.fillRect(0,HUD_H,W,farY-HUD_H);
+    // stadium lights
+    for(const lx of [46,W-46]){ for(let r=8;r>=0;r-=2){ ctx.fillStyle=`rgba(120,150,255,${0.05+(8-r)*0.008})`; ctx.fillRect(lx-r,HUD_H,r*2,r); } px(lx-5,HUD_H,10,2,'#e9f0ff'); }
+    // sponsor banner
+    px(70,HUD_H+3,52,7,'#241c45'); text('PICKLE OPEN',74,HUD_H+4,1,'#8ef0ff');
+    px(134,HUD_H+3,52,7,'#3a1730'); text('SLAM CITY',150,HUD_H+4,1,'#ffb3ab');
+    // crowd rows
+    const jump=crowdJump>0?crowdJump/22:0; const c=cfg();
+    for(let row=0;row<2;row++){ const by=HUD_H+13+row*6;
+      for(let i=0;i<28;i++){ const hx=6+i*9+(row%2)*4; if(hx>W-8) continue;
+        const bob=Math.sin(frame*0.06*c.bob+i*0.9+row)*(1+rally*0.1);
+        const y=by+Math.round(bob)-Math.round(jump*(5+(i%3)*2));
+        const tone=(i*7+row*3)%5, body=[C.crowdA,C.crowdB,'#3f2f5a','#33406e','#4a2f55'][tone];
+        px(hx,y+3,5,3,body); px(hx+1,y,3,3,'#d7b48c'); px(hx+1,y-1,3,1,tone%2?C.p1:C.p2); }
+    }
+  }
+
+  function courtPath(){
+    const nl=proj(-1,0,0), nr=proj(1,0,0), fl=proj(-1,1,0), fr=proj(1,1,0);
+    ctx.beginPath(); ctx.moveTo(fl.sx,fl.gy); ctx.lineTo(fr.sx,fr.gy); ctx.lineTo(nr.sx,nr.gy); ctx.lineTo(nl.sx,nl.gy); ctx.closePath();
+  }
+  function polyCy(cyA,cyB){
+    const al=proj(-1,cyA,0), ar=proj(1,cyA,0), bl=proj(-1,cyB,0), br=proj(1,cyB,0);
+    ctx.beginPath(); ctx.moveTo(al.sx,al.gy); ctx.lineTo(ar.sx,ar.gy); ctx.lineTo(br.sx,br.gy); ctx.lineTo(bl.sx,bl.gy); ctx.closePath();
+  }
+  function lineCourt(x1,y1,x2,y2,color,wdt){ const a=proj(x1,y1,0), b=proj(x2,y2,0);
+    ctx.strokeStyle=color; ctx.lineWidth=wdt||1; ctx.beginPath(); ctx.moveTo(a.sx,a.gy); ctx.lineTo(b.sx,b.gy); ctx.stroke(); }
+
+  function drawCourt(){
+    // surface
+    courtPath(); ctx.fillStyle=C.court; ctx.fill();
+    // subtle far-to-near shade
+    const gg=ctx.createLinearGradient(0,farY,0,nearY); gg.addColorStop(0,'rgba(15,107,92,0.55)'); gg.addColorStop(1,'rgba(47,192,168,0.12)');
+    courtPath(); ctx.fillStyle=gg; ctx.fill();
+    // kitchen (non-volley) zone, both sides of net
+    polyCy(KN,KF); ctx.fillStyle=C.kitchen; ctx.fill();
+    // lines
+    lineCourt(-1,0,1,0,C.line,2);      // near baseline
+    lineCourt(-1,1,1,1,C.line,1);      // far baseline
+    lineCourt(-1,0,-1,1,C.line,1);     // left sideline
+    lineCourt(1,0,1,1,C.line,1);       // right sideline
+    lineCourt(-1,KN,1,KN,C.line,1);    // near kitchen line
+    lineCourt(-1,KF,1,KF,C.line,1);    // far kitchen line
+    lineCourt(0,0,0,KN,C.line,1);      // center (near)
+    lineCourt(0,KF,0,1,C.line,1);      // center (far)
+  }
+
+  function drawNet(){
+    const L=proj(-1,0.5,0), R=proj(1,0.5,0);
+    const topL=proj(-1,0.5,NET_H), topR=proj(1,0.5,NET_H);
+    // posts
+    px(L.sx-1,topL.sy,2,L.gy-topL.sy,C.post); px(R.sx-1,topR.sy,2,R.gy-topR.sy,C.post);
+    // mesh
+    const steps=40;
+    for(let i=0;i<=steps;i++){ const cx=-1+2*i/steps; const b=proj(cx,0.5,0), t=proj(cx,0.5,NET_H);
+      ctx.fillStyle='rgba(238,244,245,0.42)'; for(let y=t.sy; y<b.sy; y+=2) ctx.fillRect(Math.round(b.sx),Math.round(y),1,1); }
+    // tape
+    ctx.strokeStyle=C.net; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(topL.sx,topL.sy); ctx.lineTo(topR.sx,topR.sy); ctx.stroke();
+  }
+
+  function drawShadow(cx,cy,wMul){ const p=proj(cx,cy,0); const w=Math.max(3,Math.round(7*p.sc*(wMul||1)));
+    ctx.fillStyle=C.shadow; ctx.fillRect(Math.round(p.sx-w/2), Math.round(p.gy-1), w, Math.max(1,Math.round(2*p.sc))); }
+
+  function drawPlayer(p){
+    const pr=proj(p.cx,p.cy,0); const s=pr.sc;
+    const col=p.team===0?C.p1:C.p2, cold=p.team===0?C.p1d:C.p2d, coll=p.team===0?C.p1l:C.p2l;
+    const cx=Math.round(pr.sx), gy=Math.round(pr.gy);
+    const facingUs = p.team===1;                     // far team faces the camera
+    const dirY = p.team===0? -1 : 1;                 // paddle reaches toward net (up for near)
+    const run=Math.sin(p.anim);
+    const legH=Math.max(3,Math.round(6*s));
+    const legW=Math.max(1,Math.round(2*s));
+    const bodyW=Math.max(4,Math.round(7*s));
+    const torH=Math.max(4,Math.round(7*s));
+    const dive=p.diving>0;
+    const lean = dive? (p.missDir||1)*Math.round(3*s) : 0;
+    // legs (running)
+    px(cx-bodyW/2, gy-legH-Math.max(0,Math.round(run*2*s)), legW, legH, cold);
+    px(cx+bodyW/2-legW, gy-legH-Math.max(0,Math.round(-run*2*s)), legW, legH, cold);
+    px(cx-bodyW/2, gy-1, legW+1, 1, '#101024'); px(cx+bodyW/2-legW, gy-1, legW+1, 1, '#101024');
+    // shorts + torso
+    const torY=gy-legH-torH;
+    px(cx-bodyW/2+lean, gy-legH-Math.round(3*s), bodyW, Math.round(3*s), '#141330');
+    px(cx-bodyW/2+lean, torY, bodyW, torH, col);
+    px(cx-bodyW/2+lean, torY, bodyW, Math.max(1,Math.round(s)), coll);   // collar/highlight
+    px(cx+(facingUs?-bodyW/2:bodyW/2-Math.round(1.5*s))+lean, torY+Math.round(s), Math.max(1,Math.round(1.5*s)), torH-Math.round(s), cold); // shade
+    // head + cap
+    const hr=Math.max(3,Math.round(4*s)); const hy=torY-hr;
+    px(cx-hr/2+lean, hy, hr, hr, facingUs?C.skin:coll);
+    px(cx-hr/2+lean, hy-Math.max(1,Math.round(s)), hr, Math.max(1,Math.round(s)), col); // cap
+    if(facingUs){ px(cx-1+lean, hy+Math.round(1.5*s), Math.max(1,Math.round(1*s)), Math.max(1,Math.round(1*s)), '#201830'); } // eyes hint
+    // arm + paddle reaching toward net
+    const sw=p.swing; const side=p.paddleSide||1;
+    const ax=cx + Math.round((3+ (dive?7:0))*s)*side + lean;
+    const ay=torY + dirY*Math.round((3 + 6*sw)*s);
+    ctx.strokeStyle=facingUs?C.skin:cold; ctx.lineWidth=Math.max(1,Math.round(s));
+    ctx.beginPath(); ctx.moveTo(cx+lean, torY+Math.round(2*s)); ctx.lineTo(ax,ay); ctx.stroke();
+    px(ax-Math.round(1.5*s), ay-Math.round(3*s), Math.max(2,Math.round(3*s)), Math.max(3,Math.round(6*s)), col);
+    px(ax-Math.round(0.5*s), ay-Math.round(2*s), Math.max(1,Math.round(1.5*s)), Math.max(2,Math.round(3*s)), '#ffe0b0');
+  }
+
+  function drawBall(){
+    const pr=proj(ball.cx,ball.cy,ball.cz);
+    const bx=Math.round(pr.sx), by=Math.round(pr.sy), s=pr.sc;
+    // shadow scales with height (higher = smaller, fainter)
+    const hMul=clamp(1-ball.cz*0.35,0.4,1);
+    drawShadow(ball.cx,ball.cy,0.7*hMul);
+    // trail
+    for(let i=0;i<ball.trail.length;i++){ const tp=ball.trail[i], a=i/ball.trail.length; ctx.fillStyle=`rgba(246,233,74,${a*0.3})`; ctx.fillRect(Math.round(tp.x)-1,Math.round(tp.y)-1,2,2); }
+    // speed lines
+    const spd=Math.hypot(ball.vx,ball.vy)*40;
+    if(spd>2.6 && !reducedMotion && ball.active){ const dir=ball.vx>0?-1:1; ctx.fillStyle='rgba(255,255,255,0.45)';
+      for(let k=1;k<=3;k++) ctx.fillRect(bx+dir*k*3, by-1+((k%2)?-1:1), 3,1); }
+    // wiffle ball
+    const r=Math.max(2,Math.round(2.4*s));
+    ctx.fillStyle=C.ball; ctx.fillRect(bx-r+1,by-r,2*r-2,1); ctx.fillRect(bx-r,by-r+1,2*r,2*r-2); ctx.fillRect(bx-r+1,by+r-1,2*r-2,1);
+    ctx.fillStyle=C.balld; ctx.fillRect(bx-1,by-1,1,1); ctx.fillRect(bx+Math.max(0,r-2),by,1,1);
+  }
+
+  function drawParticles(){ for(const p of particles){ ctx.globalAlpha=clamp(p.life/20,0,1); ctx.fillStyle=p.color; ctx.fillRect(Math.round(p.x),Math.round(p.y),p.sz,p.sz); } ctx.globalAlpha=1; }
+  function drawPopups(){ for(const q of popups){ const s=q.big?2:1, a=clamp(q.life/20,0,1); ctx.globalAlpha=a;
+      textC(q.str,q.x+1,q.y+1,s,'rgba(0,0,0,0.7)'); textC(q.str,q.x,q.y,s,q.color); } ctx.globalAlpha=1; }
+
+  function drawHUD(){
+    px(0,0,W,HUD_H,C.panel); px(0,HUD_H-2,W,1,C.p1); px(0,HUD_H-1,W,1,C.p2);
+    const hue=['#f6e94a','#ff5347','#37d0e8','#7bd86a'][(frame>>4)%4];
+    textC('PICKLEBALL',W/2,4,2,'#000'); textC('PICKLEBALL',W/2,3,2,reducedMotion?C.ball:hue);
+    // scores
+    text('RED',6,3,1,C.p1); text(String(score[0]).padStart(2,' '),6,11,2,C.p1);
+    text('CYN',W-24,3,1,C.p2); text(String(score[1]).padStart(2,' '),W-6-textW('00',2),11,2,C.p2);
+    // rally meter
+    const barX=42,barY=22,seg=6; text('RALLY',barX,barY,1,C.muted);
+    const filled=clamp(Math.round((rally/12)*seg),0,seg);
+    for(let i=0;i<seg;i++){ const col=i<2?C.courtL:i<4?C.ball:C.p1; px(barX+34+i*5,barY,4,6,i<filled?col:'#241c3d'); }
+    const pulse=rally>=8&&!reducedMotion&&(frame%8<4); textC('x'+rally,W/2,barY,1,pulse?C.ball:C.ink);
+    text('BEST',W-64,barY,1,C.muted); text('x'+maxRally,W-64+30,barY,1,C.p2);
+    if(phase==='serve'){ const sc=servingTeam===0?C.p1:C.p2; if(frame%20<12) px(servingTeam===0?30:W-36,12,3,3,sc); }
+  }
+
+  function drawIntenseEdges(){ if(rally<8 && intenseFlash<=0) return; if(reducedMotion) return;
+    const a=intenseFlash>0?0.4:0.10+0.07*Math.sin(frame*0.3); ctx.fillStyle=`rgba(255,83,71,${Math.max(0,a)})`;
+    ctx.fillRect(0,HUD_H,3,nearY-HUD_H); ctx.fillRect(W-3,HUD_H,3,nearY-HUD_H); }
+
+  function drawGameBanner(){ if(gameBanner<=0) return; ctx.fillStyle='rgba(8,6,26,0.72)'; ctx.fillRect(0,HUD_H,W,H-HUD_H);
+    const col=gameWinner===0?C.p1:C.p2; textC('GAME!',W/2,74,3,col);
+    textC((gameWinner===0?'RED TEAM':'CYAN TEAM')+' WINS',W/2,104,1,C.ink);
+    if(frame%24<16) textC('RUN IT BACK',W/2,120,1,C.muted); }
+
+  function drawControlUI(){
+    // "YOU" marker bobbing over the controlled player
+    const pr=proj(HUMAN.cx,HUMAN.cy,0); const s=pr.sc;
+    const my=Math.round(pr.gy - 24*s) - (frame%40<20?1:0);
+    ctx.fillStyle=C.ball;
+    ctx.beginPath(); ctx.moveTo(pr.sx-3,my-4); ctx.lineTo(pr.sx+3,my-4); ctx.lineTo(pr.sx,my); ctx.closePath(); ctx.fill();
+    textC('YOU', pr.sx, my-11, 1, C.ball);
+
+    // strike-zone timing cue: appears when a ball is heading to you.
+    // Bracket shrinks as the ball nears and turns GREEN when you're aligned — swing then.
+    if(ball.active && ball.lastTeam===1 && ball.cy>HUMAN.cy-0.03 && ball.vy<0 && (ball.cy-HUMAN.cy)<0.45){
+      const zp=proj(HUMAN.cx, HUMAN.cy+0.02, 0.5);
+      const dxAbs=Math.abs(ball.cx-HUMAN.cx);
+      const col = dxAbs<0.07 ? '#7bff8a' : dxAbs<0.16 ? C.ball : C.p1;
+      const r = 3 + Math.round(5*clamp((ball.cy-HUMAN.cy)/0.45,0,1));
+      ctx.strokeStyle=col; ctx.lineWidth=1;
+      const zx=Math.round(zp.sx), zy=Math.round(zp.sy);
+      // corner-bracket reticle
+      ctx.beginPath();
+      ctx.moveTo(zx-r,zy-r+2); ctx.lineTo(zx-r,zy-r); ctx.lineTo(zx-r+2,zy-r);
+      ctx.moveTo(zx+r-2,zy-r); ctx.lineTo(zx+r,zy-r); ctx.lineTo(zx+r,zy-r+2);
+      ctx.moveTo(zx-r,zy+r-2); ctx.lineTo(zx-r,zy+r); ctx.lineTo(zx-r+2,zy+r);
+      ctx.moveTo(zx+r-2,zy+r); ctx.lineTo(zx+r,zy+r); ctx.lineTo(zx+r,zy+r-2);
+      ctx.stroke();
+      if(HUMAN.swinging>0){ px(zx-1,zy-1,2,2,'#fff'); }
+    }
+
+    // hint bar along the apron
+    px(0,184,W,8,'rgba(8,6,26,0.72)');
+    const cur = humanShotTimer>0 ? humanShotType : null;
+    text('WASD',3,185,1,C.muted);
+    const shots=[['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash']];
+    let x=48;
+    for(let i=0;i<shots.length;i++){ const on=cur===shots[i][2];
+      text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:C.muted); x+=42; }
+    if(phase==='serve') text(servingTeam===0?'YOUR SERVE':'RECEIVE', W-70, 185, 1, C.p1);
+  }
+
+  function drawPaused(){ ctx.fillStyle='rgba(8,6,26,0.6)'; ctx.fillRect(0,0,W,H);
+    textC(reducedMotion?'PRESS  PLAY':'PAUSED',W/2,84,2,C.ball); if(reducedMotion) textC('REDUCED MOTION ON',W/2,106,1,C.muted); }
+
+  function render(){
+    ctx.fillStyle='#08061a'; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.translate(Math.round(shakeX),Math.round(shakeY));
+
+    drawStandsAndCrowd();
+    drawCourt();
+    // shadows under everyone (on the court)
+    for(const p of players) drawShadow(p.cx,p.cy,1);
+    // depth order: far team, net, near team, then ball
+    drawPlayer(players[2]); drawPlayer(players[3]);
+    drawNet();
+    drawPlayer(players[0]); drawPlayer(players[1]);
+    drawBall();
+    drawParticles();
+    drawIntenseEdges();
+    drawPopups();
+    if(controlMode) drawControlUI();
+    drawHUD();
+    drawGameBanner();
+
+    ctx.restore();
+    if(flash>0.01){ ctx.fillStyle=`rgba(255,255,255,${clamp(flash,0,0.6)})`; ctx.fillRect(0,0,W,H); }
+    if(!running && gameBanner<=0) drawPaused();
+  }
+
+  // ================= loop =================
+  let raf=0;
+  function loop(){
+    try{ if(running) update(); else { updateEffects(); frame++; } render(); }
+    catch(e){ console.error('pickleball loop error:',e); cancelAnimationFrame(raf); return; }
+    raf=requestAnimationFrame(loop);
+  }
+
+  // ================= controls =================
+  const btnControl=document.getElementById('btnControl'), btnPlay=document.getElementById('btnPlay'),
+        btnIntensity=document.getElementById('btnIntensity'), btnSfx=document.getElementById('btnSfx'),
+        btnReset=document.getElementById('btnReset');
+  const syncPlay=()=>{ btnPlay.textContent=running?'⏸ Pause':'▶ Play'; };
+  btnPlay.addEventListener('click',()=>{ ensureAudio(); running=!running; syncPlay(); });
+
+  // playable-mode toggle + keyboard
+  cv.setAttribute('tabindex','0');
+  cv.style.outline='none';
+  cv.addEventListener('mousedown',()=>cv.focus());
+  btnControl.addEventListener('click',()=>{
+    controlMode=!controlMode; ensureAudio();
+    if(controlMode){ running=true; syncPlay(); cv.focus(); }
+    btnControl.textContent = controlMode ? '🤖 Watch' : '🎮 Take Control';
+  });
+  const MOVE_KEYS = ['arrowup','arrowdown','arrowleft','arrowright',' '];
+  window.addEventListener('keydown',(e)=>{
+    const k=e.key.toLowerCase();
+    if(controlMode && MOVE_KEYS.indexOf(k)!==-1) e.preventDefault();
+    keys[k]=true;
+    if(!controlMode) return;
+    // a shot key = swing NOW (opens a short timing window); positioning grades it on contact
+    const swing=(t)=>{ HUMAN.swingShot=t; HUMAN.swinging=13; HUMAN.swing=1; humanShotType=t; humanShotTimer=22; };
+    if(k==='j') swing('dink');
+    else if(k==='k') swing('drive');
+    else if(k==='l') swing('smash');
+    else if(k===' ') swing(HUMAN.cy<0.40?'dink':'drive');  // context swing
+  });
+  window.addEventListener('keyup',(e)=>{ keys[e.key.toLowerCase()]=false; });
+  btnIntensity.addEventListener('click',()=>{ const i=order.indexOf(intensityKey); intensityKey=order[(i+1)%order.length];
+    const n=CFG[intensityKey].name; btnIntensity.textContent='⚡ '+n.charAt(0)+n.slice(1).toLowerCase(); });
+  btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
+    btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
+  btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
+
+  syncPlay(); reset(); loop();
+})();
+</script>
+</body>
+</html>
