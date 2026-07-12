@@ -123,6 +123,25 @@
     .deck .tag{ display:none; }
     .deck button.pix{ flex:1 1 30%; padding:9px 6px; }
   }
+
+  /* landscape phone: canvas fills the height, controls overlay the corners */
+  @media (hover:none) and (pointer:coarse) and (orientation:landscape){
+    body{ padding:4px; gap:4px; justify-content:flex-start; }
+    .marquee, .caption{ display:none; }
+    .stage{ max-width:none; align-items:center; }
+    .cabinet{ padding:6px; }
+    .cabinet::before, .cabinet::after{ display:none; }
+    .screen{ display:flex; justify-content:center; }
+    canvas{ height:min(calc(100dvh - 60px), 75vw); width:auto; max-width:100%; }
+    .padDeck.on{ position:fixed; left:8px; right:8px; bottom:6px; z-index:5; margin:0;
+      background:none; pointer-events:none; }
+    .stickZone, .padBtns{ pointer-events:auto; }
+    .stickZone{ width:96px; height:96px; opacity:.82; }
+    .stickNub{ width:44px; height:44px; margin:-22px 0 0 -22px; }
+    .padBtns{ grid-template-columns:repeat(2,52px); gap:8px; }
+    button.tb{ width:52px; height:52px; font-size:9px; opacity:.85; }
+    .deck{ margin-top:4px; }
+  }
 </style>
 
 <div class="stage">
@@ -157,8 +176,9 @@
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
       <button class="pix" id="btnSfx">♪ SFX Off</button>
       <button class="pix" id="btnReset">↺ Reset</button>
+      <button class="pix" id="btnFull">⛶ Full</button>
       <span class="spacer"></span>
-      <span class="tag">Doubles · <b>WASD + J/K/L</b></span>
+      <span class="tag">Aim with <b>WASD</b> as you swing · <b>J/K/L/U</b></span>
     </div>
   </div>
 
@@ -194,7 +214,7 @@
   };
 
   // ---------- broadcast projection ----------
-  const CENTER_X = 128, nearY = 178, farY = 70, nearHW = 104, farHW = 40, K = 1.25;
+  const CENTER_X = 128, nearY = 178, farY = 70, nearHW = 112, farHW = 46, K = 1.25;
   const FAR_HS = 9, NEAR_HS = 24, FAR_SC = 0.60, NEAR_SC = 1.15;
   const HUD_H = 30;
   const NET_H = 0.60, GZ = 0.006, HIT_Z = 0.5;
@@ -270,7 +290,7 @@
   // teams: 0 = near (red, bottom), 1 = far (cyan, top)
   function mkPlayer(team, lane){
     return { team, lane, cx:lane*0.45, cy: team===0?0.06:0.94, tx:lane*0.45, ty:team===0?0.06:0.94,
-             anim:0, swing:0, paddleSide:1, diving:0,
+             anim:0, swing:0, paddleSide:1, diving:0, swingType:null,
              mvx:0, mvy:0, swinging:0, swingShot:null };  // mvx/mvy: smoothed human velocity; swinging: active swing window
   }
   const players = [ mkPlayer(0,-1), mkPlayer(0,1), mkPlayer(1,-1), mkPlayer(1,1) ];
@@ -283,7 +303,8 @@
   const touchVec = {x:0, y:0};   // virtual-joystick vector (-1..1); merges with keys in applyHumanMovement
   let humanShotType = null, humanShotTimer = 0;
 
-  const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, atp:false, trail:[] };
+  const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, atp:false, shotType:null, trail:[] };
+  let ballSquash=0;   // frames of bounce squash
 
   let score=[0,0], rally=0, maxRally=0, shotCount=0;
   // authentic serve state: serverNum is the "1" or "2" in the score call (e.g. 4-2-1);
@@ -316,7 +337,8 @@
   const sfx={ pock(){beep(520+Math.random()*70,0.05,'square',0.055);}, dink(){beep(720,0.04,'triangle',0.05);},
     smash(){beep(240,0.10,'sawtooth',0.11); beep(880,0.05,'square',0.05);},
     point(){beep(330,0.08,'square',0.07); setTimeout(()=>beep(220,0.13,'square',0.07),90);},
-    net(){beep(150,0.12,'square',0.09);}, game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));} };
+    net(){beep(150,0.12,'square',0.09);}, bounce(){beep(240,0.035,'sine',0.045);},
+    game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));} };
 
   // ================= effects helpers =================
   const shake=m=>{ if(!reducedMotion) shakeMag=Math.max(shakeMag,m); };
@@ -378,7 +400,7 @@
     responsible.missDir = Math.random()<0.5?-1:1;
   }
 
-  function launch(fromTeam, type, quality){
+  function launch(fromTeam, type, quality, aim){
     const rt = 1-fromTeam, c=cfg();
     let tcx, tcy, T, flat=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
@@ -404,9 +426,22 @@
       tcx=clamp(tgt.cx+(Math.random()-0.5)*0.2,-0.9,0.9); tcy=clamp(tgt.cy+(rt===1?0.02:-0.02),0.02,0.98);
       T = type==='drive'?32:24; flat=true;
     }
+    // human aim: direction held at contact steers the shot.
+    // left/right = placement across the court; up = shorter/riskier, down = deeper/safer
+    if(aim && (aim.x||aim.y) && type!=='serve'){
+      const ax=clamp(aim.x,-1,1), ay=clamp(aim.y,-1,1);
+      if(type==='dink'||type==='drop'){
+        tcx=clamp(ax*0.75+(Math.random()-0.5)*0.10,-0.9,0.9);
+        tcy=clamp(tcy+(rt===1?-1:1)*ay*0.05, rt===1?0.53:0.36, rt===1?0.64:0.47);
+      } else if(type==='lob'){ tcx=clamp(ax*0.6,-0.85,0.85); }
+      else if(type==='drive'||type==='smash'){
+        tcx=clamp(ax*0.85+(Math.random()-0.5)*0.08,-0.95,0.95);
+        tcy=clamp(tcy+(rt===1?-1:1)*ay*0.10, 0.02, 0.98);
+      } else if(type==='return'){ tcx=clamp(ax*0.8,-0.9,0.9); }
+    }
     // shot quality (human rally hits): degrade the target for good / bad contact
     if(type==='serve'){ /* serve quality handled above */ }
-    else if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.30, -0.95, 0.95); }
+    else if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.22, -0.95, 0.95); }
     else if(quality==='bad'){
       // a mishit — pops up SHORT into the opponent's attack zone (a juicy sitter)
       tcx = clamp(tcx + (Math.random()-0.5)*0.7, -0.95, 0.95);
@@ -421,7 +456,7 @@
     if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
     ball.vz = vz;
     ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
-    ball.atp = (type==='atp');
+    ball.atp = (type==='atp'); ball.shotType=type;
     assignResponsible(rt);
     // dynamic pace: fast shots wake the sim up; dinks let it settle back to slow
     const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : type==='lob'?0.2 : 0.06;
@@ -441,7 +476,7 @@
 
   function serverHit(quality){
     const sp = team(servingTeam)[serverIdx];
-    sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1;
+    sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1; sp.swingType='lob';  // underhand serve = scoop motion
     shotCount=1;
     launch(servingTeam,'serve',quality);
     popup('SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
@@ -457,7 +492,7 @@
     sfx.pock();
   }
 
-  function doReturn(rt, p, forcedType, quality){
+  function doReturn(rt, p, forcedType, quality, aim){
     shotCount++; rally=Math.max(rally,shotCount-1); if(rally>maxRally) maxRally=rally;
     p.swing=1; p.paddleSide = ball.cx>p.cx?1:-1;
     let type;
@@ -483,7 +518,10 @@
     if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; }
     if(shotCount===12){ popup('CROWD ON FIRE!', 0, 0.5, 1.5, C.ball, true); crowdJump=30; }
     if(shotCount===3 && !forcedType) popup('drop', ball.cx, ball.cy, ball.cz+0.3, rt===0?C.p1:C.p2, false);
-    launch(rt, type, quality);
+    // pose the hitter's swing animation by shot family
+    p.swingType = (type==='smash'||type==='atp')?'smash' : type==='lob'?'lob'
+                : (type==='dink'||type==='drop')?'dink' : 'drive';
+    launch(rt, type, quality, aim);
     burstCourt(ball.cx, ball.cy, 2, '#d9c9a0', 1.0, false);
   }
 
@@ -627,7 +665,10 @@
       else if(Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78) type='atp';  // wide ball, wide player: around the post
       else popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
             HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
-      doReturn(0, HUMAN, type, erne?'perfect':q); return true;
+      // direction held at contact = aim
+      const aim={ x:(keys['a']||keys['arrowleft']?-1:0)+(keys['d']||keys['arrowright']?1:0)+touchVec.x,
+                  y:(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-1:0)+touchVec.y };
+      doReturn(0, HUMAN, type, erne?'perfect':q, aim); return true;
     }
     // AI responsible player hits as the ball crosses their depth — but obeys the
     // two-bounce rule and never volleys from inside the kitchen (waits for the bounce)
@@ -652,6 +693,7 @@
         }
         // any ball may bounce once — dink battles live off the kitchen bounce
         ball.bounced++; ball.vz = -ball.vz*0.52; ball.vx*=0.86; ball.vy*=0.86;
+        ballSquash=5; sfx.bounce();
         burstCourt(ball.cx,ball.cy,3,'#cbe9df',1.0,true);
         return false;
       }
@@ -680,6 +722,7 @@
         vx:(Math.random()-.5)*.6,vy:-0.6-Math.random()*.6,life:18,g:0.05,color:[C.p1,C.p2,C.ball][i%3],sz:1});
     }
     if(crowdJump>0) crowdJump--; if(gameBanner>0) gameBanner--; if(intenseFlash>0) intenseFlash--;
+    if(ballSquash>0) ballSquash--;
     for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=p.g; if(--p.life<=0) particles.splice(i,1); }
     for(let i=popups.length-1;i>=0;i--){ const q=popups[i]; q.y+=q.vy; if(--q.life<=0) popups.splice(i,1); }
   }
@@ -745,6 +788,10 @@
     ctx.strokeStyle=color; ctx.lineWidth=wdt||1; ctx.beginPath(); ctx.moveTo(a.sx,a.gy); ctx.lineTo(b.sx,b.gy); ctx.stroke(); }
 
   function drawCourt(){
+    // out-of-bounds apron: the floor around the court — room for ATPs and ernes
+    const a1=proj(-1.5,-0.12,0), a2=proj(1.5,-0.12,0), a3=proj(1.5,1.08,0), a4=proj(-1.5,1.08,0);
+    ctx.beginPath(); ctx.moveTo(a4.sx,a4.gy); ctx.lineTo(a3.sx,a3.gy); ctx.lineTo(a2.sx,a2.gy); ctx.lineTo(a1.sx,a1.gy); ctx.closePath();
+    ctx.fillStyle='#14333c'; ctx.fill();
     // surface
     courtPath(); ctx.fillStyle=C.court; ctx.fill();
     // subtle far-to-near shade
@@ -782,7 +829,9 @@
   function drawPlayer(p){
     const pr=proj(p.cx,p.cy,0); const s=pr.sc;
     const col=p.team===0?C.p1:C.p2, cold=p.team===0?C.p1d:C.p2d, coll=p.team===0?C.p1l:C.p2l;
-    const cx=Math.round(pr.sx), gy=Math.round(pr.gy);
+    // smash hop: the whole body lifts at the peak of an overhead
+    const hop = (p.swing>0.5 && p.swingType==='smash') ? Math.round(2.5*s) : 0;
+    const cx=Math.round(pr.sx), gy=Math.round(pr.gy)-hop;
     const facingUs = p.team===1;                     // far team faces the camera
     const dirY = p.team===0? -1 : 1;                 // paddle reaches toward net (up for near)
     const run=Math.sin(p.anim);
@@ -807,12 +856,24 @@
     px(cx-hr/2+lean, hy, hr, hr, facingUs?C.skin:coll);
     px(cx-hr/2+lean, hy-Math.max(1,Math.round(s)), hr, Math.max(1,Math.round(s)), col); // cap
     if(facingUs){ px(cx-1+lean, hy+Math.round(1.5*s), Math.max(1,Math.round(1*s)), Math.max(1,Math.round(1*s)), '#201830'); } // eyes hint
-    // arm + paddle reaching toward net
-    const sw=p.swing; const side=p.paddleSide||1;
-    const ax=cx + Math.round((3+ (dive?7:0))*s)*side + lean;
-    const ay=torY + dirY*Math.round((3 + 6*sw)*s);
+    // arm + paddle: pose depends on the shot being hit
+    const sw=p.swing; const side=p.paddleSide||1; const st=p.swingType;
+    let ax=cx + Math.round((3+ (dive?7:0))*s)*side + lean;
+    let ay=torY + dirY*Math.round((3 + 6*sw)*s);
+    if(sw>0.05){
+      if(st==='smash'){ ay = torY - Math.round(9*sw*s); ax = cx + side*Math.round((2+3*sw)*s) + lean; }        // arm overhead
+      else if(st==='drive'){ ax = cx + side*Math.round((5+7*sw)*s) + lean; ay = torY + Math.round(1*s); }      // flat sideways rip
+      else if(st==='lob'){ ay = torY + Math.round((7-11*sw)*s); ax = cx + side*Math.round(4*s) + lean; }       // low-to-high scoop
+      else if(st==='dink'){ ax = cx + side*Math.round((4+2*sw)*s) + lean; ay = torY + dirY*Math.round((2+2*sw)*s); } // soft tap
+    }
     ctx.strokeStyle=facingUs?C.skin:cold; ctx.lineWidth=Math.max(1,Math.round(s));
     ctx.beginPath(); ctx.moveTo(cx+lean, torY+Math.round(2*s)); ctx.lineTo(ax,ay); ctx.stroke();
+    // swing streak for power shots
+    if(sw>0.5 && (st==='drive'||st==='smash') && !reducedMotion){
+      ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(ax-side*3, ay+2); ctx.lineTo(ax-side*8, ay+4);
+      ctx.moveTo(ax-side*2, ay-2); ctx.lineTo(ax-side*6, ay-3); ctx.stroke();
+    }
     px(ax-Math.round(1.5*s), ay-Math.round(3*s), Math.max(2,Math.round(3*s)), Math.max(3,Math.round(6*s)), col);
     px(ax-Math.round(0.5*s), ay-Math.round(2*s), Math.max(1,Math.round(1.5*s)), Math.max(2,Math.round(3*s)), '#ffe0b0');
   }
@@ -823,16 +884,24 @@
     // shadow scales with height (higher = smaller, fainter)
     const hMul=clamp(1-ball.cz*0.35,0.4,1);
     drawShadow(ball.cx,ball.cy,0.7*hMul);
-    // trail
-    for(let i=0;i<ball.trail.length;i++){ const tp=ball.trail[i], a=i/ball.trail.length; ctx.fillStyle=`rgba(246,233,74,${a*0.3})`; ctx.fillRect(Math.round(tp.x)-1,Math.round(tp.y)-1,2,2); }
+    // per-shot trail: smashes burn, drives streak, dinks stay clean
+    const st=ball.shotType;
+    const trailA = st==='smash'||st==='atp' ? 0.55 : st==='drive' ? 0.4 : st==='dink'||st==='drop' ? 0.12 : 0.3;
+    const trailC = st==='smash'||st==='atp' ? '255,138,92' : st==='drive' ? '255,255,255' : '246,233,74';
+    for(let i=0;i<ball.trail.length;i++){ const tp=ball.trail[i], a=i/ball.trail.length;
+      ctx.fillStyle=`rgba(${trailC},${a*trailA})`; ctx.fillRect(Math.round(tp.x)-1,Math.round(tp.y)-1,2,2); }
     // speed lines
     const spd=Math.hypot(ball.vx,ball.vy)*40;
     if(spd>2.6 && !reducedMotion && ball.active){ const dir=ball.vx>0?-1:1; ctx.fillStyle='rgba(255,255,255,0.45)';
       for(let k=1;k<=3;k++) ctx.fillRect(bx+dir*k*3, by-1+((k%2)?-1:1), 3,1); }
-    // wiffle ball
+    // wiffle ball (squashes flat for a beat on the bounce)
     const r=Math.max(2,Math.round(2.4*s));
-    ctx.fillStyle=C.ball; ctx.fillRect(bx-r+1,by-r,2*r-2,1); ctx.fillRect(bx-r,by-r+1,2*r,2*r-2); ctx.fillRect(bx-r+1,by+r-1,2*r-2,1);
-    ctx.fillStyle=C.balld; ctx.fillRect(bx-1,by-1,1,1); ctx.fillRect(bx+Math.max(0,r-2),by,1,1);
+    if(ballSquash>0 && ball.cz<0.15){
+      ctx.fillStyle=C.ball; ctx.fillRect(bx-r-1,by-Math.max(1,r>>1),2*r+2,Math.max(2,r));
+    } else {
+      ctx.fillStyle=C.ball; ctx.fillRect(bx-r+1,by-r,2*r-2,1); ctx.fillRect(bx-r,by-r+1,2*r,2*r-2); ctx.fillRect(bx-r+1,by+r-1,2*r-2,1);
+      ctx.fillStyle=C.balld; ctx.fillRect(bx-1,by-1,1,1); ctx.fillRect(bx+Math.max(0,r-2),by,1,1);
+    }
   }
 
   function drawParticles(){ for(const p of particles){ ctx.globalAlpha=clamp(p.life/20,0,1); ctx.fillStyle=p.color; ctx.fillRect(Math.round(p.x),Math.round(p.y),p.sz,p.sz); } ctx.globalAlpha=1; }
@@ -869,6 +938,26 @@
     if(frame%24<16) textC('RUN IT BACK',W/2,120,1,C.muted); }
 
   function drawControlUI(){
+    // landing marker: where the ball in flight will touch down (gold = yours to play)
+    if(ball.active && ball.bounced===0){
+      const lp=proj(ball.tcx,ball.tcy,0);
+      const mine = ball.lastTeam===1;
+      const r = 2 + ((frame%16<8)?1:0);
+      ctx.strokeStyle = mine? 'rgba(246,233,74,0.85)' : 'rgba(238,244,245,0.35)';
+      ctx.lineWidth=1; ctx.beginPath();
+      ctx.moveTo(lp.sx,lp.gy-r); ctx.lineTo(lp.sx+r,lp.gy); ctx.lineTo(lp.sx,lp.gy+r); ctx.lineTo(lp.sx-r,lp.gy); ctx.closePath(); ctx.stroke();
+    }
+    // aim arrow while swinging with a direction held
+    if(HUMAN.swinging>0){
+      const ax=(keys['a']||keys['arrowleft']?-1:0)+(keys['d']||keys['arrowright']?1:0)+touchVec.x;
+      const ay=(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-1:0)+touchVec.y;
+      if(ax||ay){
+        const hp=proj(HUMAN.cx,HUMAN.cy,0.9);
+        const m=Math.hypot(ax,ay)||1;
+        ctx.strokeStyle=C.ball; ctx.lineWidth=1; ctx.beginPath();
+        ctx.moveTo(hp.sx,hp.sy); ctx.lineTo(hp.sx+(ax/m)*10, hp.sy-(ay/m)*7); ctx.stroke();
+      }
+    }
     // "YOU" marker bobbing over the controlled player
     const pr=proj(HUMAN.cx,HUMAN.cy,0); const s=pr.sc;
     const my=Math.round(pr.gy - 24*s) - (frame%40<20?1:0);
@@ -988,7 +1077,8 @@
   // during the serve meter, any shot press locks the needle instead.
   function doSwing(t){ if(!controlMode) return;
     if(phase==='serveMeter'){ lockServe(); return; }
-    HUMAN.swingShot=t; HUMAN.swinging=13; HUMAN.swing=1; humanShotType=t; humanShotTimer=22; }
+    HUMAN.swingShot=t; HUMAN.swinging=13; HUMAN.swing=1; HUMAN.swingType=t;
+    humanShotType=t; humanShotTimer=22; }
   const MOVE_KEYS = ['arrowup','arrowdown','arrowleft','arrowright',' '];
   window.addEventListener('keydown',(e)=>{
     const k=e.key.toLowerCase();
@@ -1031,6 +1121,19 @@
   btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
     btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
   btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
+
+  // fullscreen (iOS 16.4+, Android, desktop); hidden where the API is unavailable
+  const btnFull=document.getElementById('btnFull');
+  const fsEl=document.documentElement;
+  if(!(fsEl.requestFullscreen||fsEl.webkitRequestFullscreen)) btnFull.style.display='none';
+  btnFull.addEventListener('click',()=>{ ensureAudio();
+    try{
+      const p = fsEl.requestFullscreen ? fsEl.requestFullscreen() : fsEl.webkitRequestFullscreen();
+      Promise.resolve(p).then(()=>{
+        if(screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
+      }).catch(()=>{});
+    }catch(e){}
+  });
 
   syncPlay(); reset(); loop();
 

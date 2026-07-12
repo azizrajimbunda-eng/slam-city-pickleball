@@ -61,6 +61,7 @@ const els = {};
 global.document = {
   getElementById: id => (els[id] ||= elStub(id)),
   addEventListener() {},
+  documentElement: elStub('root'),
 };
 global.window = global;
 global.addEventListener = () => {};
