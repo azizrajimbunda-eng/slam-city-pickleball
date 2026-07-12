@@ -111,6 +111,7 @@
     box-shadow:inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f;
     touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   button.tb:active{ transform:translateY(2px); box-shadow:inset 0 -2px 0 rgba(0,0,0,.5), 0 1px 0 #05040f; }
+  button.tb.hint{ border-color:#7bd86a; box-shadow:0 0 12px 2px rgba(123,255,138,.55), inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f; }
   button.tb.dink{ border-color:var(--p2); } button.tb.drive{ border-color:var(--ball); }
   button.tb.smash{ border-color:var(--p1); } button.tb.lob{ border-color:#7bd86a; }
 
@@ -141,6 +142,8 @@
     .padBtns{ grid-template-columns:repeat(2,52px); gap:8px; }
     button.tb{ width:52px; height:52px; font-size:9px; opacity:.85; }
     .deck{ margin-top:4px; }
+    .deck .tag{ display:none; }
+    .deck button.pix{ padding:8px 7px; font-size:10px; }
   }
 </style>
 
@@ -175,6 +178,7 @@
       <button class="pix" id="btnControl" data-accent="p1">🎮 Take Control</button>
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
       <button class="pix" id="btnSfx">♪ SFX Off</button>
+      <button class="pix" id="btnVoice">🎙 Voice On</button>
       <button class="pix" id="btnReset">↺ Reset</button>
       <button class="pix" id="btnFull">⛶ Full</button>
       <span class="spacer"></span>
@@ -312,7 +316,9 @@
   let servingTeam=0, serverIdx=1, prevServing=0, serverNum=2, firstTurn=true;
   const scoreCall=()=> score[servingTeam]+'-'+score[1-servingTeam]+'-'+serverNum;
   let phase='serve', phaseTimer=40, lastReason='POINT';
+  let lastWinner=0, lastDetail=null;   // result banner: who took the rally + the consequence
   let responsible=null, matchOver=false;
+  let recHint=null, domHint=null;      // recommended shot for the incoming ball
   // speed-up hand battle: frames remaining + exchange count (pressure ramps per exchange)
   let handBattle=0, hbCount=0;
   // human serve meter: oscillating needle, tap to lock
@@ -339,6 +345,25 @@
     point(){beep(330,0.08,'square',0.07); setTimeout(()=>beep(220,0.13,'square',0.07),90);},
     net(){beep(150,0.12,'square',0.09);}, bounce(){beep(240,0.035,'sine',0.045);},
     game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));} };
+
+  // ---- announcer: browser speech synthesis, arcade-referee cadence ----
+  // speaks only while the human is playing (guarantees a user gesture happened,
+  // and keeps attract mode quiet). Lines queue naturally — cancel-then-speak
+  // drops utterances on iOS, and Chrome silences GC'd utterances mid-word.
+  let voiceOn=true, curUtter=null;
+  function say(text){
+    if(!voiceOn || !controlMode) return;
+    try{
+      if(typeof speechSynthesis==='undefined' || typeof SpeechSynthesisUtterance==='undefined') return;
+      const u=new SpeechSynthesisUtterance(text);
+      u.rate=1.0; u.pitch=0.75; u.volume=0.9;
+      u.onend=u.onerror=()=>{ if(curUtter===u) curUtter=null; };
+      curUtter=u;
+      speechSynthesis.speak(u);
+    }catch(e){}
+  }
+  const SPOKEN={ 'POINT':'Point', 'OUT':'Out', 'NET':'Into the net',
+                 'KITCHEN!':'Kitchen fault', 'TWO BOUNCE!':'Two bounce violation' };
 
   // ================= effects helpers =================
   const shake=m=>{ if(!reducedMotion) shakeMag=Math.max(shakeMag,m); };
@@ -381,6 +406,7 @@
     ball.tcx = tcx; ball.tcy = baselineCy(rt);
     // referee announces the score call
     popup(scoreCall(), 0, 0.52, 1.3, servingTeam===0?C.p1:C.p2, false);
+    say(score[servingTeam]+', '+score[1-servingTeam]+', '+serverNum);
     // the human times their own serve; AI serves on a timer
     if(controlMode && servingTeam===0 && serverIdx===0){
       serveMeter.t=0; serveMeter.locked=-1; serveMeter.quality=undefined;
@@ -536,26 +562,41 @@
     shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
     if(reason==='NET') sfx.net(); else sfx.point();
     ball.active=false; handBattle=0; hbCount=0;
-    prevServing=servingTeam;
+    prevServing=servingTeam; lastWinner=winner;
     if(scored){
       serverIdx=1-serverIdx;                 // server keeps serving, switching courts
+      lastDetail=null;
     } else if(firstTurn || serverNum===2){
       // side-out: service passes; new team starts on server 1, right court first
       servingTeam=winner; serverNum=1; firstTurn=false;
       serverIdx = servingTeam===0 ? 1 : 0;
-      popup('SIDE OUT', 0, 0.5, 1.1, col, true);
+      lastDetail='SIDE OUT';
     } else {
       serverNum=2; serverIdx=1-serverIdx;    // first fault: partner serves
-      popup('2ND SERVER', 0, 0.5, 1.1, col, false);
+      lastDetail='2ND SERVER';
     }
-    phase='dead'; phaseTimer= reducedMotion?40:54;
+    // settle: hold the moment, show the consequence, then move on
+    phase='dead'; phaseTimer= reducedMotion?50:90;
     const other=1-winner;
     if(scored && score[winner]>=11 && score[winner]-score[other]>=2){
       gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
+      say('Game! '+(winner===0?'Red':'Cyan')+' team wins');
+    } else {
+      const line = SPOKEN[lastReason]||'Point';
+      say(line + (lastDetail ? '. '+(lastDetail==='SIDE OUT'?'Side out':'Second server') : ''));
     }
   }
 
   // ================= simulation =================
+  // what the incoming ball calls for, pickleball-style: high = put it away,
+  // low at the kitchen = reset with a dink, mid-height = drive, low & deep = lift
+  function bestShot(cz, cy){
+    if(cz>0.85) return 'smash';
+    if(cy>0.30) return cz<0.60 ? 'dink' : 'drive';
+    if(cz<0.30) return 'lob';
+    return 'drive';
+  }
+
   // human movement: fixed, deliberate top speed with acceleration so it never feels twitchy
   const HMAX=0.0135, HACC=0.0034;
   function applyHumanMovement(p){
@@ -658,13 +699,24 @@
       let err=dxAbs/0.20;
       if(ball.cz>0.95) err += (ball.cz-0.95)*0.7;    // high ball is tougher to control
       if(ball.cz<0.22) err += (0.22-ball.cz)*1.3;    // low, dug-out ball is tougher
-      const q = err<0.40 ? 'perfect' : err<0.78 ? 'good' : 'bad';
       HUMAN.swinging=0;
       let type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
+      const isAtp = !erne && Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78;
+      // shot-choice suitability: the wrong tool for this ball costs you
+      let choiceNote=null;
+      if(!erne && !isAtp){
+        const suit = bestShot(ball.cz, HUMAN.cy);
+        if(type==='smash' && ball.cz<0.60){ err+=0.55; choiceNote='TOO LOW!'; }
+        else if(type==='drive' && ball.cz<0.35 && HUMAN.cy>0.28){ err+=0.35; choiceNote='NET RISK!'; }
+        else if(type==='dink' && ball.cz>0.85){ choiceNote='SITTER!'; }
+        else if(type===suit){ err=Math.max(0,err-0.12); }
+      }
+      const q = err<0.40 ? 'perfect' : err<0.78 ? 'good' : 'bad';
       if(erne){ type='smash'; popup('ERNE!!', HUMAN.cx, HUMAN.cy, 1.3, '#7bff8a', true); confetti(); crowdJump=Math.max(crowdJump,20); }
-      else if(Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78) type='atp';  // wide ball, wide player: around the post
+      else if(isAtp) type='atp';  // wide ball, wide player: around the post
       else popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
             HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
+      if(choiceNote) popup(choiceNote, HUMAN.cx, HUMAN.cy, 1.5, C.p1, false);
       // direction held at contact = aim
       const aim={ x:(keys['a']||keys['arrowleft']?-1:0)+(keys['d']||keys['arrowright']?1:0)+touchVec.x,
                   y:(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-1:0)+touchVec.y };
@@ -746,7 +798,8 @@
         updatePlayers(); updateBall();
         break;
       case 'dead':
-        updatePlayers();
+        // settle beat: everyone holds their pose for a moment before walking back
+        if(phaseTimer <= (reducedMotion?38:66)) updatePlayers();
         if(phaseTimer>0) phaseTimer--;
         else if(matchOver) reset();
         else startPoint();
@@ -932,6 +985,17 @@
     ctx.fillStyle=`rgba(255,83,71,${Math.max(0,a)})`;
     ctx.fillRect(0,HUD_H,3,nearY-HUD_H); ctx.fillRect(W-3,HUD_H,3,nearY-HUD_H); }
 
+  // the consequence beat between rallies: what happened + what's next
+  function drawResultBanner(){
+    // matchOver: the GAME! overlay owns the screen; !running: PAUSED overprints here
+    if(phase!=='dead' || gameBanner>0 || matchOver || !running) return;
+    const col=lastWinner===0?C.p1:C.p2;
+    px(0,78,W,30,'rgba(8,6,26,0.78)');
+    px(0,78,W,1,col); px(0,107,W,1,col);
+    textC(lastReason, W/2, 82, 2, col);
+    textC(lastDetail || ('NEXT  '+scoreCall()), W/2, 99, 1, lastDetail?C.ball:C.ink);
+  }
+
   function drawGameBanner(){ if(gameBanner<=0) return; ctx.fillStyle='rgba(8,6,26,0.72)'; ctx.fillRect(0,HUD_H,W,H-HUD_H);
     const col=gameWinner===0?C.p1:C.p2; textC('GAME!',W/2,74,3,col);
     textC((gameWinner===0?'RED TEAM':'CYAN TEAM')+' WINS',W/2,104,1,C.ink);
@@ -982,6 +1046,18 @@
       const mustWait = ball.bounced===0 && shotCount<=2;   // two-bounce rule: no volley yet
       const col = mustWait ? C.muted : dxAbs<0.07 ? '#7bff8a' : dxAbs<0.16 ? C.ball : C.p1;
       if(mustWait) textC('WAIT', zp.sx, zp.sy-14, 1, C.muted);
+      // read the ball: estimated height at arrival → the shot it calls for
+      const tArr=(ball.cy-HUMAN.cy)/Math.max(1e-4,-ball.vy);
+      let czA=ball.cz + ball.vz*tArr - 0.5*GZ*tArr*tArr;
+      if(czA<0.05){
+        // it bounces before it reaches you: predict the rebound height,
+        // not a constant — floaters sit up into smashable sitters
+        const vzLand=Math.sqrt(ball.vz*ball.vz + 2*GZ*Math.max(0,ball.cz));
+        czA=clamp(Math.pow(0.52*vzLand,2)/(2*GZ)*0.8, 0.12, 1.3);
+      }
+      // no recommendation while a volley would be a fault (two-bounce WAIT)
+      recHint = mustWait ? null : bestShot(clamp(czA,0.05,1.4), HUMAN.cy);
+      if(recHint) textC(recHint.toUpperCase(), zp.sx, zp.sy-22, 1, '#7bff8a');
       const r = 3 + Math.round(5*clamp((ball.cy-HUMAN.cy)/0.45,0,1));
       ctx.strokeStyle=col; ctx.lineWidth=1;
       const zx=Math.round(zp.sx), zy=Math.round(zp.sy);
@@ -993,6 +1069,12 @@
       ctx.moveTo(zx+r-2,zy+r); ctx.lineTo(zx+r,zy+r); ctx.lineTo(zx+r,zy+r-2);
       ctx.stroke();
       if(HUMAN.swinging>0){ px(zx-1,zy-1,2,2,'#fff'); }
+    } else recHint=null;
+    // glow the matching touch button for the recommended shot
+    if(recHint!==domHint){
+      domHint=recHint;
+      for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash'],['tbLob','lob']])
+        document.getElementById(id).classList.toggle('hint', t===domHint);
     }
 
     // serve meter: oscillating needle — tap any shot button to lock it
@@ -1015,8 +1097,8 @@
     text('WASD',3,185,1,C.muted);
     const shots=[['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash'],['U','LOB','lob']];
     let x=40;
-    for(let i=0;i<shots.length;i++){ const on=cur===shots[i][2];
-      text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:C.muted);
+    for(let i=0;i<shots.length;i++){ const on=cur===shots[i][2], isRec=recHint===shots[i][2];
+      text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:isRec?'#7bff8a':C.muted);
       x += 18 + shots[i][1].length*6; }
   }
 
@@ -1040,6 +1122,7 @@
     drawIntenseEdges();
     drawPopups();
     if(controlMode) drawControlUI();
+    drawResultBanner();
     drawHUD();
     drawGameBanner();
 
@@ -1069,7 +1152,12 @@
   function setControl(on){
     controlMode=on; ensureAudio();
     if(on){ running=true; syncPlay(); cv.focus(); }
-    else if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; }  // hand the serve back to the AI
+    else {
+      if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; }  // hand the serve back to the AI
+      // clear any lingering shot recommendation (drawControlUI stops reconciling it)
+      recHint=null; domHint=null;
+      for(const id of ['tbDink','tbDrive','tbSmash','tbLob']) document.getElementById(id).classList.remove('hint');
+    }
     btnControl.textContent = on ? '🤖 Watch' : '🎮 Take Control';
   }
   btnControl.addEventListener('click',()=>setControl(!controlMode));
@@ -1120,6 +1208,10 @@
   }
   btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
     btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
+  const btnVoice=document.getElementById('btnVoice');
+  btnVoice.addEventListener('click',()=>{ voiceOn=!voiceOn;
+    if(!voiceOn && typeof speechSynthesis!=='undefined') try{ speechSynthesis.cancel(); }catch(e){}
+    btnVoice.textContent=voiceOn?'🎙 Voice On':'🎙 Voice Off'; });
   btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
 
   // fullscreen (iOS 16.4+, Android, desktop); hidden where the API is unavailable

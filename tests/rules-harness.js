@@ -50,7 +50,7 @@ const ctxStub = new Proxy({}, {
 function elStub(id) {
   return {
     id, style: {}, textContent: '',
-    classList: { add() {}, remove() {}, contains: () => false },
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     addEventListener() {}, setAttribute() {}, focus() {},
     getContext: () => ctxStub,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 118, height: 118 }),
