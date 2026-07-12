@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SLAM CITY — 8-Bit Pickleball</title>
+<meta name="theme-color" content="#08061a">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
 <style>
@@ -286,7 +289,7 @@
   const touchVec = {x:0, y:0};   // virtual-joystick vector (-1..1); merges with keys in applyHumanMovement
   let humanShotType = null, humanShotTimer = 0;
 
-  const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, trail:[] };
+  const ball = { cx:0, cy:0.06, cz:HIT_Z, vx:0, vy:0, vz:0, active:false, lastTeam:0, tcx:0, tcy:0, bounced:0, atp:false, trail:[] };
 
   let score=[0,0], rally=0, maxRally=0, shotCount=0;
   // authentic serve state: serverNum is the "1" or "2" in the score call (e.g. 4-2-1);
@@ -399,6 +402,9 @@
     else if(type==='lob'){ // high and deep over the net players
       tcy = rt===1?0.90:0.10; tcx=clamp(-ball.cx*0.4+(Math.random()-0.5)*0.6,-0.85,0.85); T=76;
     }
+    else if(type==='atp'){ // around the post: flat and wide, never passes over the net
+      tcy = rt===1?0.80:0.20; tcx = Math.sign(ball.cx||1)*0.72; T=30; flat=true;
+    }
     else { // drive / smash / speed-up: at an opponent's body — stays snappy for contrast
       const tgt = team(rt)[Math.random()<0.5?0:1];
       tcx=clamp(tgt.cx+(Math.random()-0.5)*0.2,-0.9,0.9); tcy=clamp(tgt.cy+(rt===1?0.02:-0.02),0.02,0.98);
@@ -421,6 +427,7 @@
     if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
     ball.vz = vz;
     ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
+    ball.atp = (type==='atp');
     assignResponsible(rt);
     // dynamic pace: fast shots wake the sim up; dinks let it settle back to slow
     const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : type==='lob'?0.2 : 0.06;
@@ -432,6 +439,7 @@
     } else if(type==='dink'||type==='drop'||type==='lob'){ handBattle=0; hbCount=0; }
     // fx
     if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16); }
+    else if(type==='atp'){ popup('ATP!!', ball.cx, ball.cy, ball.cz+0.6, '#7bff8a', true); confetti(); shake(2.5*c.shake); doFlash(0.3); sfx.smash(); crowdJump=Math.max(crowdJump,20); }
     else if(type==='drive'){ sfx.pock(); shake(1.2*c.shake); }
     else if(type==='dink'){ sfx.dink(); }
     else sfx.pock();
@@ -462,6 +470,9 @@
     if(forcedType) type=forcedType;         // human-chosen shot
     else if(shotCount===2) type='return';
     else if(shotCount===3) type='drop';
+    else if(Math.abs(ball.cx)>0.85 && ball.bounced>0 && shotCount>=4 && Math.random()<0.35){
+      type='atp';                           // ball drifted wide off the bounce: around the post!
+    }
     else if(ball.cz>0.85){                  // ball sitting up high: overhead punish
       type='smash'; popup('OVERHEAD!', ball.cx, ball.cy, ball.cz+0.5, rt===0?C.p1:C.p2, true);
     }
@@ -476,6 +487,7 @@
       else type='dink';
     }
     if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; }
+    if(shotCount===12){ popup('CROWD ON FIRE!', 0, 0.5, 1.5, C.ball, true); crowdJump=30; }
     if(shotCount===3 && !forcedType) popup('drop', ball.cx, ball.cy, ball.cz+0.3, rt===0?C.p1:C.p2, false);
     launch(rt, type, quality);
     burstCourt(ball.cx, ball.cy, 2, '#d9c9a0', 1.0, false);
@@ -584,7 +596,7 @@
     if((py0-0.5)*(ball.cy-0.5) <= 0 && py0!==ball.cy){
       const f=(0.5-py0)/(ball.cy-py0); const zc=ball.cz - ball.vz*sub*(1-f);
       const xc=lerp(px0,ball.cx,f);
-      if(zc < NET_H && Math.abs(xc)<1.02){
+      if(zc < NET_H && Math.abs(xc)<1.02 && !ball.atp){
         ball.cz=Math.max(0,zc); ball.cy=0.5; ball.active=false;
         const pp=proj(xc,0.5,zc); particles.push({x:pp.sx,y:pp.sy,vx:0,vy:0,life:10,g:0,color:C.net,sz:2});
         scorePoint(1-ball.lastTeam,'NET'); return true;
@@ -605,7 +617,9 @@
       if(ball.bounced===0 && shotCount<=2){
         HUMAN.swinging=0; ball.active=false; scorePoint(1,'TWO BOUNCE!'); return true;
       }
-      if(ball.bounced===0 && inKitchen(HUMAN)){
+      // erne: volleying from beside the kitchen (feet outside the sideline) is legal — and spectacular
+      const erne = ball.bounced===0 && Math.abs(HUMAN.cx)>0.85 && HUMAN.cy>0.40;
+      if(ball.bounced===0 && inKitchen(HUMAN) && !erne){
         HUMAN.swinging=0; ball.active=false; scorePoint(1,'KITCHEN!'); return true;
       }
       const dxAbs=Math.abs(ball.cx-HUMAN.cx);
@@ -614,10 +628,12 @@
       if(ball.cz<0.22) err += (0.22-ball.cz)*1.3;    // low, dug-out ball is tougher
       const q = err<0.40 ? 'perfect' : err<0.78 ? 'good' : 'bad';
       HUMAN.swinging=0;
-      const type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
-      popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
+      let type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
+      if(erne){ type='smash'; popup('ERNE!!', HUMAN.cx, HUMAN.cy, 1.3, '#7bff8a', true); confetti(); crowdJump=Math.max(crowdJump,20); }
+      else if(Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78) type='atp';  // wide ball, wide player: around the post
+      else popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
             HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
-      doReturn(0, HUMAN, type, q); return true;
+      doReturn(0, HUMAN, type, erne?'perfect':q); return true;
     }
     // AI responsible player hits as the ball crosses their depth — but obeys the
     // two-bounce rule and never volleys from inside the kitchen (waits for the bounce)
@@ -664,6 +680,11 @@
     if(flash>0) flash*= reducedMotion?0.86:0.80;
     if(paceBoost>0.002) paceBoost*=0.90; else paceBoost=0;   // ease back toward slow
     if(handBattle>0){ handBattle--; paceBoost=Math.max(paceBoost,0.85); if(handBattle===0) hbCount=0; }
+    // long-rally crowd sparkle
+    if(rally>=10 && frame%36===0 && !reducedMotion){
+      for(let i=0;i<6;i++) particles.push({x:6+Math.random()*244,y:HUD_H+12+Math.random()*12,
+        vx:(Math.random()-.5)*.6,vy:-0.6-Math.random()*.6,life:18,g:0.05,color:[C.p1,C.p2,C.ball][i%3],sz:1});
+    }
     if(crowdJump>0) crowdJump--; if(gameBanner>0) gameBanner--; if(intenseFlash>0) intenseFlash--;
     for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=p.g; if(--p.life<=0) particles.splice(i,1); }
     for(let i=popups.length-1;i>=0;i--){ const q=popups[i]; q.y+=q.vy; if(--q.life<=0) popups.splice(i,1); }
@@ -838,6 +859,7 @@
     const pulse=rally>=8&&!reducedMotion&&(frame%8<4); textC('x'+rally,W/2,barY,1,pulse?C.ball:C.ink);
     text('BEST',W-64,barY,1,C.muted); text('x'+maxRally,W-64+30,barY,1,C.p2);
     // official score call (server score - receiver score - server number)
+    text(scoreCall(), 5, barY+1, 1, 'rgba(0,0,0,0.7)');
     text(scoreCall(), 4, barY, 1, servingTeam===0?C.p1:C.p2);
     if(phase==='serve'){ const sc=servingTeam===0?C.p1:C.p2; if(frame%20<12) px(servingTeam===0?30:W-36,12,3,3,sc); }
   }
@@ -859,8 +881,15 @@
     ctx.fillStyle=C.ball;
     ctx.beginPath(); ctx.moveTo(pr.sx-3,my-4); ctx.lineTo(pr.sx+3,my-4); ctx.lineTo(pr.sx,my); ctx.closePath(); ctx.fill();
     textC('YOU', pr.sx, my-11, 1, C.ball);
-    // standing in the kitchen: volleying from here is a fault
-    if(HUMAN.cy>KN && (frame%14<8)) textC('NVZ!', pr.sx, Math.round(pr.gy+3), 1, C.p1);
+    // standing in the kitchen: volleying from here is a fault — unless beside it (erne zone)
+    const inErneZone = Math.abs(HUMAN.cx)>0.85 && HUMAN.cy>0.40;
+    if(inErneZone && (frame%14<8)) textC('ERNE ZONE', pr.sx, Math.round(pr.gy+3), 1, '#7bff8a');
+    else if(HUMAN.cy>KN && (frame%14<8)) textC('NVZ!', pr.sx, Math.round(pr.gy+3), 1, C.p1);
+    // wide incoming ball: around-the-post chance
+    if(ball.active && ball.lastTeam===1 && ball.cy<0.5 && Math.abs(ball.cx)>0.80 && (frame%10<6)){
+      const bp=proj(ball.cx,ball.cy,ball.cz);
+      textC('ATP?', bp.sx, bp.sy-12, 1, '#7bff8a');
+    }
 
     // strike-zone timing cue: appears when a ball is heading to you.
     // Bracket shrinks as the ball nears and turns GREEN when you're aligned — swing then.
@@ -1013,6 +1042,11 @@
   btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
 
   syncPlay(); reset(); loop();
+
+  // PWA: install-to-home-screen support; silently skipped where unsupported (e.g. artifact host)
+  if('serviceWorker' in navigator && location.protocol!=='file:'){
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  }
 })();
 </script>
 </body>
