@@ -177,16 +177,22 @@
     width:40px; height:40px; padding:0; font-size:16px; line-height:1; }
   body.mobile #btnGear{ display:block; }
 
-  /* portrait-first: game on top, a full-size thumb zone below */
+  /* portrait-first: the court fills as much of the screen as its 4:3 shape safely
+     allows — canvas is oversized 12% and center-cropped by .screen's overflow:hidden;
+     6% per side only eats the dead margin beyond the sideline (cx=1 sits at 93.75%
+     of canvas width at the near baseline, widest a player ever stands is 91.6%), so
+     no real court is lost. Controls float over the court as a translucent overlay
+     (same pattern landscape already uses below) instead of reserving space below it. */
   @media (orientation:portrait){
-    body.mobile canvas{ width:100vw; height:auto; }
+    body.mobile canvas{ width:112vw; height:auto; flex-shrink:0; }
     /* fits 100vw: 2vw + 40vw zone + 52vw diamond (2.6×20vw) + 2vw ≈ 96vw */
     body.mobile .padDeck{ --tb:min(20vw,84px); --sz:min(40vw,200px); --sb:min(25vw,120px); --sn:min(12vw,56px); }
-    /* keep the gear clear of the canvas HUD strip (top ~16% of the 4:3 canvas) */
-    body.mobile #btnGear{ top:calc(env(safe-area-inset-top,0px) + 15.6vw + 12px); }
-    body.mobile .deck{ top:calc(env(safe-area-inset-top,0px) + 15.6vw + 58px); }
-    body.mobile .padDeck.on{ flex:1; margin:0; align-items:center;
-      padding:8px 2vw calc(env(safe-area-inset-bottom,0px) + 10px); width:100%; box-sizing:border-box; }
+    /* keep the gear clear of the canvas HUD strip (top ~16% of the now-1.12×-bigger canvas) */
+    body.mobile #btnGear{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 12px); }
+    body.mobile .deck{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 58px); }
+    body.mobile .padDeck.on{ position:absolute; left:0; right:0;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 10px); z-index:5;
+      margin:0; padding:0 2vw; box-sizing:border-box; background:none; pointer-events:none; }
   }
   /* landscape: full-bleed canvas, controls overlay the bottom corners.
      bottom offset clears iOS's home-indicator swipe zone — without it, touches
@@ -195,11 +201,13 @@
     body.mobile canvas{ height:100dvh; width:auto; max-width:100vw; }
     body.mobile .padDeck{ --tb:clamp(56px,16vh,72px); --sz:clamp(120px,40vh,170px);
       --sb:clamp(88px,26vh,110px); --sn:clamp(44px,13vh,54px); }
-    body.mobile .padDeck.on{ position:fixed; left:10px; right:10px;
+    body.mobile .padDeck.on{ position:absolute; left:10px; right:10px;
       bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:5; margin:0;
       background:none; pointer-events:none; }
-    body.mobile .stickZone, body.mobile .padBtns{ pointer-events:auto; opacity:.9; }
   }
+  /* both orientations float the deck as a transparent hit-test-only container —
+     re-enable pointer-events and a bit of translucency on just the interactive pieces */
+  body.mobile .stickZone, body.mobile .padBtns{ pointer-events:auto; opacity:.9; }
 </style>
 
 <div class="stage">
@@ -214,18 +222,18 @@
       <div class="crt lines"></div>
       <div class="crt vig"></div>
       <div class="crt glare"></div>
-    </div>
 
-    <div class="padDeck" id="padDeck">
-      <div class="stickZone" id="stickZone">
-        <div class="stickBase"></div>
-        <div class="stickNub" id="stickNub"></div>
-      </div>
-      <div class="padBtns">
-        <button class="tb dink" id="tbDink">DINK</button>
-        <button class="tb drive" id="tbDrive">DRIVE</button>
-        <button class="tb smash" id="tbSmash">SMASH</button>
-        <button class="tb lob" id="tbLob">LOB</button>
+      <div class="padDeck" id="padDeck">
+        <div class="stickZone" id="stickZone">
+          <div class="stickBase"></div>
+          <div class="stickNub" id="stickNub"></div>
+        </div>
+        <div class="padBtns">
+          <button class="tb dink" id="tbDink">DINK</button>
+          <button class="tb drive" id="tbDrive">DRIVE</button>
+          <button class="tb smash" id="tbSmash">SMASH</button>
+          <button class="tb lob" id="tbLob">LOB</button>
+        </div>
       </div>
     </div>
 
