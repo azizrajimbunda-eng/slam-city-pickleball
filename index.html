@@ -447,6 +447,28 @@
     // resume() here, every sound stays silently blocked forever, regardless of the
     // SFX/Music toggles being on
     if(actx && actx.state==='suspended'){ try{ actx.resume(); }catch(e){} }
+    primeAudioSession();
+  }
+  // iOS Safari mutes the Web Audio API (and speechSynthesis) outright when the
+  // phone's hardware silent switch is on — completely independent of AudioContext
+  // state or volume. The standard workaround: get a real <audio> element playing
+  // (even silent content) inside a genuine gesture; iOS then flips the page's whole
+  // audio session into a category that ignores the silent switch from then on,
+  // covering the Web Audio oscillators and TTS too. Built at runtime — no asset file.
+  let audioPrimed=false;
+  function primeAudioSession(){
+    if(audioPrimed) return; audioPrimed=true;
+    try{
+      const rate=8000, len=rate; // 1s of silence, looped
+      const buf=new ArrayBuffer(44+len*2), v=new DataView(buf);
+      const wr=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
+      wr(0,'RIFF'); v.setUint32(4,36+len*2,true); wr(8,'WAVE');
+      wr(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+      v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+      wr(36,'data'); v.setUint32(40,len*2,true);   // sample bytes stay zero = silence
+      const el=new Audio(URL.createObjectURL(new Blob([buf],{type:'audio/wav'})));
+      el.loop=true; el.play().catch(()=>{});
+    }catch(e){}
   }
   function beep(f,d,type,v){ if(!sfxOn||!actx) return; const t0=actx.currentTime;
     const o=actx.createOscillator(),g=actx.createGain(); o.type=type||'square'; o.frequency.setValueAtTime(f,t0);
