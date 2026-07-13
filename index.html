@@ -1320,14 +1320,15 @@
   function clearStick(){ stickId=null; touchVec.x=0; touchVec.y=0;
     stickBase.classList.remove('show'); stickNub.classList.remove('show'); }
   stickZone.addEventListener('pointerdown', stickDown);
-  stickZone.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) setStick(e); });
-  stickZone.addEventListener('pointerup',e=>{ if(e.pointerId===stickId) clearStick(); });
-  stickZone.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });
-  // safety nets: an OS gesture (edge-swipe, etc.) can silently steal or release the touch
-  // without ever firing pointercancel, leaving the stick stuck — catch those cases too
-  stickZone.addEventListener('lostpointercapture',e=>{ if(e.pointerId===stickId) clearStick(); });
-  stickZone.addEventListener('pointerleave',e=>{ if(e.pointerId===stickId) clearStick(); });
-  stickZone.addEventListener('pointerout',e=>{ if(e.pointerId===stickId) clearStick(); });
+  // move/up/cancel are tracked on `document`, not `stickZone` — iOS Safari's
+  // setPointerCapture is unreliable once the touch drifts onto a different element
+  // (like the canvas underneath), silently starving the zone of further move events.
+  // Listening on document sidesteps capture entirely: it always sees every move for
+  // this pointerId regardless of what's physically underneath the finger.
+  document.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) setStick(e); });
+  document.addEventListener('pointerup',e=>{ if(e.pointerId===stickId) clearStick(); });
+  document.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });
+  document.addEventListener('lostpointercapture',e=>{ if(e.pointerId===stickId) clearStick(); });
   document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearStick(); });
   window.addEventListener('blur', clearStick);
   for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash'],['tbLob','lob']]){
