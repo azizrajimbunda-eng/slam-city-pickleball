@@ -208,6 +208,26 @@
   /* both orientations float the deck as a transparent hit-test-only container —
      re-enable pointer-events and a bit of translucency on just the interactive pieces */
   body.mobile .stickZone, body.mobile .padBtns{ pointer-events:auto; opacity:.9; }
+
+  /* ---- first-run mobile onboarding: desktop has the caption paragraph explaining
+     controls, but that's display:none on mobile — without this a first-time phone
+     player gets zero instructions. Shown once, gated by localStorage. ---- */
+  .onboard{ display:none; position:fixed; inset:0; z-index:30; background:rgba(5,4,15,.90);
+    align-items:center; justify-content:center; padding:20px; box-sizing:border-box;
+    touch-action:none; }
+  .onboard.show{ display:flex; }
+  .onboard-card{ background:linear-gradient(180deg,#1c1544,#100c2c); border:2px solid var(--bezel-hi);
+    border-radius:14px; padding:22px 20px; max-width:320px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,.65); text-align:center; }
+  .onboard h2{ margin:0 0 5px; font-size:14px; letter-spacing:.1em; text-transform:uppercase; color:var(--ball); }
+  .onboard .sub{ margin:0 0 18px; font-size:10.5px; color:var(--muted); letter-spacing:.03em; line-height:1.5; }
+  .onboard .row{ display:flex; align-items:center; gap:12px; text-align:left; margin-bottom:13px; }
+  .onboard .ico{ flex:0 0 auto; width:36px; height:36px; border-radius:50%; display:flex;
+    align-items:center; justify-content:center; font-size:16px; border:2px solid var(--line);
+    background:rgba(255,255,255,.04); }
+  .onboard .row p{ margin:0; font-size:11px; line-height:1.5; color:var(--ink); }
+  .onboard .row b{ color:var(--ball); }
+  .onboard button{ margin-top:6px; width:100%; }
 </style>
 
 <div class="stage">
@@ -254,12 +274,23 @@
   <p class="caption">
     Broadcast view, from behind the baseline — just like the real thing. Four players, a live
     <b>third-shot drop</b>, a <b>kitchen dink battle</b>, then someone <b>speeds it up</b> and the hands fly.
-    Hit <b>🎮 Take Control</b> to grab the near-left red paddle. <b>WASD</b> to move; press
+    Hit <b>🎮 Take Control</b> to grab the near-side red paddle. <b>WASD</b> to move; press
     <b>J</b> dink · <b>K</b> drive · <b>L</b> smash to <b>swing</b>. It's about timing: line up the
     <b>strike bracket</b> over the ball and swing as it turns green — good positioning = a <b>PERFECT</b>
     shot; sloppy timing pops up a <b>sitter</b> the CPU will pounce on. Your AI partner covers the rest.
     <span class="foot">Slow by default (real pickleball) — it bursts fast on drives, smashes and net battles. Click the screen first so it hears your keys.</span>
   </p>
+</div>
+
+<div class="onboard" id="onboard">
+  <div class="onboard-card">
+    <h2>◆ How to Play ◆</h2>
+    <p class="sub">Doubles pickleball, broadcast view — you're the near-side red paddle</p>
+    <div class="row"><span class="ico">🕹️</span><p>Drag anywhere in the <b>joystick zone</b> (bottom-left) to move</p></div>
+    <div class="row"><span class="ico">🏓</span><p>Tap <b>DINK / DRIVE / SMASH / LOB</b> to swing — time it as the ball crosses your strike zone</p></div>
+    <div class="row"><span class="ico">⚙️</span><p>Sound, haptics and reset are behind the gear icon</p></div>
+    <button class="pix" id="btnOnboardOK" data-accent="ball">▶ Let's Play</button>
+  </div>
 </div>
 
 <script>
@@ -1317,6 +1348,18 @@
     // stray second finger during a rally shouldn't ever pan/zoom the page
     document.addEventListener('gesturestart', e=>e.preventDefault());
     document.addEventListener('touchmove', e=>{ if(e.touches.length>1) e.preventDefault(); }, {passive:false});
+    // first-run onboarding: the desktop caption explaining controls is display:none
+    // here, so a first-time phone player would otherwise get no instructions at all
+    const onboard=document.getElementById('onboard'), ONBOARD_KEY='slamCityOnboarded';
+    let seenOnboard=false;
+    try{ seenOnboard = localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){}
+    if(!seenOnboard) onboard.classList.add('show');
+    document.getElementById('btnOnboardOK').addEventListener('click', ()=>{
+      onboard.classList.remove('show');
+      try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){}
+      if(!controlMode) setControl(true);
+      autoFullscreen();
+    });
   }
   const btnGear=document.getElementById('btnGear');
   btnGear.addEventListener('click',()=>{ ensureAudio(); document.body.classList.toggle('menuOpen'); });
