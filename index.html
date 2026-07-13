@@ -386,7 +386,7 @@
   let gameBanner=0, gameWinner=-1;
   const particles=[], popups=[];
 
-  function baselineCy(t){ return t===0?0.06:0.94; }
+  function baselineCy(t){ return t===0?-0.06:1.06; }  // behind the baseline line (drawn at cy 0/1) — pickleball has no separate service line
   function netCy(t){ return t===0?0.30:0.70; }
   // right-handed players: forehand side is absolute +x for the near team, -x for the far
   // team (they face opposite baselines, so "their right" mirrors across teams)
@@ -437,7 +437,12 @@
   // ================= point / serve flow =================
   function reset(){
     score=[0,0]; rally=0; maxRally=0; servingTeam=0; prevServing=0;
-    serverNum=2; firstTurn=true; serverIdx=1;   // games open at 0-0-2
+    serverNum=2; firstTurn=true;                // games open at 0-0-2
+    // restore canonical starting lanes (they persist/swap across a game) — human opens
+    // the match serving, from the right court per the 0-0-2 rule
+    players[0].lane=1; players[1].lane=-1;
+    players[2].lane=-1; players[3].lane=1;
+    serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     startPoint();
   }
@@ -676,7 +681,7 @@
     p.mvx += clamp(tvx-p.mvx, -HACC, HACC);    // ease toward target velocity
     p.mvy += clamp(tvy-p.mvy, -HACC, HACC);
     p.cx = clamp(p.cx + p.mvx, -0.95, 0.95);
-    p.cy = clamp(p.cy + p.mvy, 0.03, 0.49);    // stay on the near half
+    p.cy = clamp(p.cy + p.mvy, -0.08, 0.49);   // stay on the near half (allow standing behind the baseline)
     p.anim += (Math.abs(p.mvx)+Math.abs(p.mvy))*22 + 0.03;
     p.paddleSide = ball.cx>p.cx ? 1 : -1;
     if(p.swing>0) p.swing=Math.max(0,p.swing-0.12);
@@ -713,7 +718,7 @@
       } else {
         ty=p.ty; tx=p.tx;
       }
-      tx=clamp(tx,-0.95,0.95); ty=clamp(ty, p.team===0?0.02:0.5, p.team===0?0.5:0.98);
+      tx=clamp(tx,-0.95,0.95); ty=clamp(ty, p.team===0?-0.08:0.5, p.team===0?0.5:1.08);
       const pace=curPace();
       const mvx=0.035*pace*spdMul, mvy=0.024*pace*spdMul;
       const dx=clamp(tx-p.cx,-mvx,mvx), dy=clamp(ty-p.cy,-mvy,mvy);
@@ -804,7 +809,7 @@
       }
     }
     // out of bounds
-    if(Math.abs(ball.cx)>1.03 || ball.cy<-0.05 || ball.cy>1.05){
+    if(Math.abs(ball.cx)>1.03 || ball.cy<-0.15 || ball.cy>1.15){
       ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true;
     }
     // ground
@@ -1310,6 +1315,13 @@
   stickZone.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) setStick(e); });
   stickZone.addEventListener('pointerup',e=>{ if(e.pointerId===stickId) clearStick(); });
   stickZone.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });
+  // safety nets: an OS gesture (edge-swipe, etc.) can silently steal or release the touch
+  // without ever firing pointercancel, leaving the stick stuck — catch those cases too
+  stickZone.addEventListener('lostpointercapture',e=>{ if(e.pointerId===stickId) clearStick(); });
+  stickZone.addEventListener('pointerleave',e=>{ if(e.pointerId===stickId) clearStick(); });
+  stickZone.addEventListener('pointerout',e=>{ if(e.pointerId===stickId) clearStick(); });
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearStick(); });
+  window.addEventListener('blur', clearStick);
   for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash'],['tbLob','lob']]){
     document.getElementById(id).addEventListener('pointerdown',e=>{
       e.preventDefault(); if(!controlMode) setControl(true); autoFullscreen(); doSwing(t); });
