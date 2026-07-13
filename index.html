@@ -642,13 +642,13 @@
       const [pA,pB] = team(servingTeam); const t=pA.lane; pA.lane=pB.lane; pB.lane=t;
       lastDetail=null;
     } else if(firstTurn || serverNum===2){
-      // side-out: service passes; the new team's server is whoever is standing in the
-      // court matching their score's parity (even=right, odd=left; right is mirrored
-      // per team since they face opposite baselines)
+      // side-out: service passes to whoever on the new team is CURRENTLY standing in
+      // the right court (right is mirrored per team since they face opposite baselines).
+      // Score parity only governs alternation within one team's own continuous serving
+      // turn (the `scored` branch above) — it plays no part in who serves after a side-out.
       servingTeam=winner; serverNum=1; firstTurn=false;
       const rightLane = winner===0 ? 1 : -1;
-      const wantLane = score[winner]%2===0 ? rightLane : -rightLane;
-      serverIdx = team(winner)[0].lane===wantLane ? 0 : 1;
+      serverIdx = team(winner)[0].lane===rightLane ? 0 : 1;
       lastDetail='SIDE OUT';
     } else {
       serverNum=2; serverIdx=1-serverIdx;    // first fault: partner serves
