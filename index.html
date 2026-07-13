@@ -830,16 +830,18 @@
         doReturn(rt, responsible, undefined, q); return true;
       }
     }
-    // out of bounds
-    if(Math.abs(ball.cx)>1.03 || ball.cy<-0.15 || ball.cy>1.15){
+    // out of bounds — only matters before the ball's one legal bounce. Once it has
+    // bounced in fair, a wide/late flight just means nobody returned it in time;
+    // that's a two-bounce fault for the *receiver*, not an out call on the hitter.
+    if(ball.bounced<1 && (Math.abs(ball.cx)>1.03 || ball.cy<-0.15 || ball.cy>1.15)){
       ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true;
     }
     // ground
     if(ball.cz<=0){
       ball.cz=0;
-      const inBounds = Math.abs(ball.cx)<=1.0 && ball.cy>=0 && ball.cy<=1;
-      if(!inBounds){ ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true; }
       if(ball.bounced<1){
+        const inBounds = Math.abs(ball.cx)<=1.0 && ball.cy>=0 && ball.cy<=1;
+        if(!inBounds){ ball.active=false; scorePoint(1-ball.lastTeam,'OUT'); return true; }
         // the serve must clear the kitchen (line included)
         if(shotCount===1){
           const shortServe = rt===0 ? (ball.cy>=KN && ball.cy<=0.5) : (ball.cy>=0.5 && ball.cy<=KF);
@@ -851,7 +853,8 @@
         burstCourt(ball.cx,ball.cy,3,'#cbe9df',1.0,true);
         return false;
       }
-      // second touch of the court = rally over, hitter wins it
+      // second touch of the court, anywhere — two-bounce fault, hitter wins the rally
+      // regardless of whether that second bounce itself lands in or out
       ball.active=false; scorePoint(ball.lastTeam,'POINT'); return true;
     }
     return false;
