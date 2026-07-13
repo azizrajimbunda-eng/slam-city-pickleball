@@ -92,21 +92,27 @@
   .caption b{ color:var(--ink); font-weight:600; }
   .caption .foot{ display:block; margin-top:8px; font-size:11px; letter-spacing:.06em; color:#5f5885; }
 
-  /* ---- touch pad: floating joystick + diamond shot buttons (coarse-pointer devices) ---- */
-  .padDeck{ display:none; margin-top:12px; align-items:center; justify-content:space-between; gap:16px;
+  /* ---- touch pad: floating joystick + diamond shot buttons (touch devices) ----
+     all sizes flow from the variables on .padDeck — --tb button diameter, --pad
+     diamond box (3×tb keeps the 17/83% diamond edge-safe), --sz stick zone,
+     --sb/--sn stick base/nub — so mobile app mode rescales everything coherently */
+  .padDeck{ --tb:56px; --pad:calc(var(--tb)*2.6); --sz:132px; --sb:96px; --sn:50px;
+    display:none; margin-top:12px; align-items:center; justify-content:space-between; gap:16px;
     touch-action:none; -webkit-user-select:none; user-select:none; }
   .padDeck.on{ display:flex; }
 
   /* joystick: the whole zone is the catcher — touch anywhere in it and the stick
      appears right under your thumb, instead of requiring a precise touch-down spot */
-  .stickZone{ flex:0 0 auto; width:132px; height:132px; position:relative; touch-action:none;
+  .stickZone{ flex:0 0 auto; width:var(--sz); height:var(--sz); position:relative; touch-action:none;
     border-radius:50%; background:rgba(255,255,255,.03); border:1px dashed rgba(255,255,255,.10); }
-  .stickBase{ position:absolute; left:50%; top:50%; width:96px; height:96px; margin:-48px 0 0 -48px;
+  .stickBase{ position:absolute; left:50%; top:50%; width:var(--sb); height:var(--sb);
+    margin:calc(var(--sb)*-0.5) 0 0 calc(var(--sb)*-0.5);
     border-radius:50%; background:radial-gradient(circle at 50% 42%, #221a40 0%, #120d26 70%);
     border:2px solid var(--line); box-shadow:inset 0 4px 14px rgba(0,0,0,.6);
     opacity:0; transition:opacity .12s; pointer-events:none; }
   .stickBase.show{ opacity:1; }
-  .stickNub{ position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px;
+  .stickNub{ position:absolute; left:50%; top:50%; width:var(--sn); height:var(--sn);
+    margin:calc(var(--sn)*-0.5) 0 0 calc(var(--sn)*-0.5);
     border-radius:50%; background:linear-gradient(180deg,#3a2d63,#1c1636);
     border:2px solid var(--bezel-hi); box-shadow:0 4px 10px rgba(0,0,0,.55), inset 0 2px 0 rgba(255,255,255,.08);
     opacity:0; transition:opacity .12s; pointer-events:none; }
@@ -116,8 +122,9 @@
      DINK (bottom) and DRIVE (right) sit at easy thumb-rest reach — they're the
      shots you throw constantly in a rally; SMASH (top) and LOB (left) take a
      deliberate stretch, matching how often you'd actually reach for them. */
-  .padBtns{ position:relative; width:168px; height:168px; flex:0 0 auto; }
-  button.tb{ appearance:none; position:absolute; width:56px; height:56px; margin:-28px 0 0 -28px;
+  .padBtns{ position:relative; width:var(--pad); height:var(--pad); flex:0 0 auto; }
+  button.tb{ appearance:none; position:absolute; width:var(--tb); height:var(--tb);
+    margin:calc(var(--tb)*-0.5) 0 0 calc(var(--tb)*-0.5);
     border-radius:50%; cursor:pointer;
     font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--ink);
     background:linear-gradient(180deg,#211a3c,#140f28); border:2px solid var(--line);
@@ -125,13 +132,13 @@
     touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   button.tb:active{ transform:translateY(2px); box-shadow:inset 0 -2px 0 rgba(0,0,0,.5), 0 1px 0 #05040f; }
   button.tb.hint{ border-color:#7bd86a; box-shadow:0 0 12px 2px rgba(123,255,138,.55), inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f; }
-  /* 17%/83% keeps each 56-58px button's full circle inside the container at any
-     of the two sizes below (bleeding past the box would eat into the page's own
-     edge margin — verified this the hard way, see commit history) */
-  button.tb.smash{ border-color:var(--p1); left:50%; top:17%; }
-  button.tb.dink{ border-color:var(--p2); left:50%; top:83%; }
-  button.tb.lob{ border-color:#7bd86a; left:17%; top:50%; }
-  button.tb.drive{ border-color:var(--ball); left:83%; top:50%; }
+  /* 19.5%/80.5% of a 2.6×tb box = exactly tb/2 from the edge: full circles stay
+     inside at any size, adjacent centers still ~1.12×tb apart (no overlap).
+     (bleeding past the box eats the page's edge margin — learned the hard way) */
+  button.tb.smash{ border-color:var(--p1); left:50%; top:19.5%; }
+  button.tb.dink{ border-color:var(--p2); left:50%; top:80.5%; }
+  button.tb.lob{ border-color:#7bd86a; left:19.5%; top:50%; }
+  button.tb.drive{ border-color:var(--ball); left:80.5%; top:50%; }
 
   @media (max-width:600px){
     body{ padding:12px 8px 24px; gap:10px; }
@@ -143,29 +150,49 @@
     .deck button.pix{ flex:1 1 30%; padding:9px 6px; }
   }
 
-  /* landscape phone: canvas fills the height, controls overlay the corners */
-  @media (hover:none) and (pointer:coarse) and (orientation:landscape){
-    body{ padding:4px; gap:4px; justify-content:flex-start; }
-    .marquee, .caption{ display:none; }
-    .stage{ max-width:none; align-items:center; }
-    .cabinet{ padding:6px; }
-    .cabinet::before, .cabinet::after{ display:none; }
-    .screen{ display:flex; justify-content:center; }
-    canvas{ height:min(calc(100dvh - 60px), 75vw); width:auto; max-width:100%; }
-    /* bottom offset clears iOS's home-indicator swipe-gesture zone — without this,
-       touches near the edge are silently eaten by the OS instead of the game */
-    .padDeck.on{ position:fixed; left:10px; right:10px;
-      bottom:calc(env(safe-area-inset-bottom,0px) + 14px); z-index:5; margin:0;
+  /* ---- mobile app mode (body.mobile, set for touch devices): the game IS the
+     screen — no page chrome, no scroll; the deck hides behind a ⚙ menu ---- */
+  body.mobile{ padding:0; gap:0; height:100dvh; min-height:0; overflow:hidden; justify-content:flex-start; }
+  body.mobile .marquee, body.mobile .caption{ display:none; }
+  body.mobile .stage{ max-width:none; height:100dvh; gap:0; }
+  body.mobile .cabinet{ background:none; border:none; border-radius:0; padding:0; box-shadow:none;
+    display:flex; flex-direction:column; align-items:center; height:100dvh; }
+  body.mobile .cabinet::before, body.mobile .cabinet::after{ display:none; }
+  body.mobile .screen{ border-radius:0; border:none; box-shadow:none; flex:0 0 auto;
+    display:flex; justify-content:center; background:#05040f; width:100%; }
+  /* the deck becomes a dropdown menu behind the ⚙ button */
+  body.mobile .deck{ display:none; position:fixed; z-index:20; flex-direction:column; align-items:stretch;
+    top:calc(env(safe-area-inset-top,0px) + 54px); right:10px; margin:0; gap:8px;
+    background:rgba(13,10,30,.96); border:2px solid var(--bezel-hi); border-radius:10px; padding:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.7); }
+  body.mobile .deck .tag, body.mobile .deck .spacer{ display:none; }
+  body.mobile.menuOpen .deck{ display:flex; }
+  #btnGear{ display:none; position:fixed; z-index:21; top:calc(env(safe-area-inset-top,0px) + 8px); right:10px;
+    width:40px; height:40px; padding:0; font-size:16px; line-height:1; }
+  body.mobile #btnGear{ display:block; }
+
+  /* portrait-first: game on top, a full-size thumb zone below */
+  @media (orientation:portrait){
+    body.mobile canvas{ width:100vw; height:auto; }
+    /* fits 100vw: 2vw + 40vw zone + 52vw diamond (2.6×20vw) + 2vw ≈ 96vw */
+    body.mobile .padDeck{ --tb:min(20vw,84px); --sz:min(40vw,200px); --sb:min(25vw,120px); --sn:min(12vw,56px); }
+    /* keep the gear clear of the canvas HUD strip (top ~16% of the 4:3 canvas) */
+    body.mobile #btnGear{ top:calc(env(safe-area-inset-top,0px) + 15.6vw + 12px); }
+    body.mobile .deck{ top:calc(env(safe-area-inset-top,0px) + 15.6vw + 58px); }
+    body.mobile .padDeck.on{ flex:1; margin:0; align-items:center;
+      padding:8px 2vw calc(env(safe-area-inset-bottom,0px) + 10px); width:100%; box-sizing:border-box; }
+  }
+  /* landscape: full-bleed canvas, controls overlay the bottom corners.
+     bottom offset clears iOS's home-indicator swipe zone — without it, touches
+     near the edge are silently eaten by the OS instead of the game */
+  @media (orientation:landscape){
+    body.mobile canvas{ height:100dvh; width:auto; max-width:100vw; }
+    body.mobile .padDeck{ --tb:clamp(56px,16vh,72px); --sz:clamp(120px,40vh,170px);
+      --sb:clamp(88px,26vh,110px); --sn:clamp(44px,13vh,54px); }
+    body.mobile .padDeck.on{ position:fixed; left:10px; right:10px;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:5; margin:0;
       background:none; pointer-events:none; }
-    .stickZone, .padBtns{ pointer-events:auto; }
-    .stickZone{ width:156px; height:156px; opacity:.9; }
-    .stickBase{ width:100px; height:100px; margin:-50px 0 0 -50px; }
-    .stickNub{ width:48px; height:48px; margin:-24px 0 0 -24px; }
-    .padBtns{ width:176px; height:176px; opacity:.9; }
-    button.tb{ width:58px; height:58px; margin:-29px 0 0 -29px; font-size:9px; }
-    .deck{ margin-top:4px; }
-    .deck .tag{ display:none; }
-    .deck button.pix{ padding:8px 7px; font-size:10px; }
+    body.mobile .stickZone, body.mobile .padBtns{ pointer-events:auto; opacity:.9; }
   }
 </style>
 
@@ -206,6 +233,7 @@
       <span class="spacer"></span>
       <span class="tag">Aim with <b>WASD</b> as you swing · <b>J/K/L/U</b></span>
     </div>
+    <button class="pix" id="btnGear" aria-label="Menu">⚙</button>
   </div>
 
   <p class="caption">
@@ -1206,7 +1234,14 @@
   // ---- touch pad: joystick + shot buttons feed the same input paths as keyboard ----
   const padDeck=document.getElementById('padDeck'), stickZone=document.getElementById('stickZone'),
         stickNub=document.getElementById('stickNub'), stickBase=stickZone.querySelector('.stickBase');
-  if('ontouchstart' in window || navigator.maxTouchPoints>0) padDeck.classList.add('on');
+  if('ontouchstart' in window || navigator.maxTouchPoints>0){
+    padDeck.classList.add('on');
+    document.body.classList.add('mobile');   // app mode: full-bleed game, deck behind the ⚙ menu
+  }
+  const btnGear=document.getElementById('btnGear');
+  btnGear.addEventListener('click',()=>{ ensureAudio(); document.body.classList.toggle('menuOpen'); });
+  // choosing any menu action closes the panel
+  document.querySelector('.deck').addEventListener('click',()=>document.body.classList.remove('menuOpen'));
   // floating joystick: touch ANYWHERE in the zone and the stick appears right under
   // your thumb (origin = touch-down point), instead of requiring a precise touch-down
   // spot on a small fixed circle. Drag radius is a fixed logical distance, independent
@@ -1216,6 +1251,7 @@
   function stickDown(e){
     e.preventDefault(); stickId=e.pointerId; stickZone.setPointerCapture(stickId);
     if(!controlMode) setControl(true);
+    autoFullscreen();
     const r=stickZone.getBoundingClientRect(), pad=30;
     stickOX=clamp(e.clientX-r.left, pad, r.width-pad);
     stickOY=clamp(e.clientY-r.top, pad, r.height-pad);
@@ -1240,7 +1276,7 @@
   stickZone.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });
   for(const [id,t] of [['tbDink','dink'],['tbDrive','drive'],['tbSmash','smash'],['tbLob','lob']]){
     document.getElementById(id).addEventListener('pointerdown',e=>{
-      e.preventDefault(); if(!controlMode) setControl(true); doSwing(t); });
+      e.preventDefault(); if(!controlMode) setControl(true); autoFullscreen(); doSwing(t); });
   }
   btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
     btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
@@ -1254,14 +1290,23 @@
   const btnFull=document.getElementById('btnFull');
   const fsEl=document.documentElement;
   if(!(fsEl.requestFullscreen||fsEl.webkitRequestFullscreen)) btnFull.style.display='none';
-  btnFull.addEventListener('click',()=>{ ensureAudio();
+  function goFullscreen(){
     try{
       const p = fsEl.requestFullscreen ? fsEl.requestFullscreen() : fsEl.webkitRequestFullscreen();
-      Promise.resolve(p).then(()=>{
-        if(screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
-      }).catch(()=>{});
+      Promise.resolve(p).catch(()=>{});
     }catch(e){}
-  });
+  }
+  btnFull.addEventListener('click',()=>{ ensureAudio(); goFullscreen(); });
+  // mobile: the first touch on the controls is a user gesture — take the game
+  // fullscreen then. Skipped when running as an installed home-screen app
+  // (already chromeless), and never retried if the browser refuses.
+  let fsTried=false;
+  function autoFullscreen(){
+    if(fsTried || !document.body.classList.contains('mobile')) return;
+    fsTried=true;
+    if(navigator.standalone===true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) return;
+    goFullscreen();
+  }
 
   syncPlay(); reset(); loop();
 

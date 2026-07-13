@@ -61,8 +61,10 @@ function elStub(id) {
 const els = {};
 global.document = {
   getElementById: id => (els[id] ||= elStub(id)),
+  querySelector: sel => (els[sel] ||= elStub(sel)),
   addEventListener() {},
   documentElement: elStub('root'),
+  body: elStub('body'),
 };
 global.window = global;
 global.addEventListener = () => {};
