@@ -867,7 +867,7 @@
     const tvx=dx*HMAX, tvy=dy*HMAX*0.72;
     p.mvx += clamp(tvx-p.mvx, -HACC, HACC);    // ease toward target velocity
     p.mvy += clamp(tvy-p.mvy, -HACC, HACC);
-    p.cx = clamp(p.cx + p.mvx, -0.95, 0.95);
+    p.cx = clamp(p.cx + p.mvx, -1.15, 1.15);   // sideline is at ±1.0 — leave room to actually step outside it for ernes/ATPs
     p.cy = clamp(p.cy + p.mvy, -0.08, 0.49);   // stay on the near half (allow standing behind the baseline)
     p.anim += (Math.abs(p.mvx)+Math.abs(p.mvy))*22 + 0.03;
     p.paddleSide = ball.cx>p.cx ? 1 : -1;
@@ -905,7 +905,7 @@
       } else {
         ty=p.ty; tx=p.tx;
       }
-      tx=clamp(tx,-0.95,0.95); ty=clamp(ty, p.team===0?-0.08:0.5, p.team===0?0.5:1.08);
+      tx=clamp(tx,-1.15,1.15); ty=clamp(ty, p.team===0?-0.08:0.5, p.team===0?0.5:1.08);
       const pace=curPace();
       const mvx=0.035*pace*spdMul, mvy=0.024*pace*spdMul;
       const dx=clamp(tx-p.cx,-mvx,mvx), dy=clamp(ty-p.cy,-mvy,mvy);
@@ -948,8 +948,9 @@
       if(ball.bounced===0 && shotCount<=2){
         HUMAN.swinging=0; ball.active=false; scorePoint(1,'TWO BOUNCE!'); return true;
       }
-      // erne: volleying from beside the kitchen (feet outside the sideline) is legal — and spectacular
-      const erne = ball.bounced===0 && Math.abs(HUMAN.cx)>0.85 && HUMAN.cy>0.40;
+      // erne: volleying from beside the kitchen (feet outside the sideline) is legal — and spectacular.
+      // genuinely outside now that movement can reach past the cx=1.0 sideline.
+      const erne = ball.bounced===0 && Math.abs(HUMAN.cx)>1.0 && HUMAN.cy>0.40;
       if(ball.bounced===0 && inKitchen(HUMAN) && !erne){
         HUMAN.swinging=0; ball.active=false; scorePoint(1,'KITCHEN!'); return true;
       }
@@ -962,7 +963,7 @@
       if(backhand) err += 0.16;
       HUMAN.swinging=0;
       let type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
-      const isAtp = !erne && Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78;
+      const isAtp = !erne && Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>1.0;   // player must actually be past the sideline
       // shot-choice suitability: the wrong tool for this ball costs you
       let choiceNote=null;
       if(!erne && !isAtp){
@@ -1314,7 +1315,7 @@
     ctx.beginPath(); ctx.moveTo(pr.sx-3,my-4); ctx.lineTo(pr.sx+3,my-4); ctx.lineTo(pr.sx,my); ctx.closePath(); ctx.fill();
     textC('YOU', pr.sx, my-11, 1, C.ball);
     // standing in the kitchen: volleying from here is a fault — unless beside it (erne zone)
-    const inErneZone = Math.abs(HUMAN.cx)>0.85 && HUMAN.cy>0.40;
+    const inErneZone = Math.abs(HUMAN.cx)>1.0 && HUMAN.cy>0.40;
     if(inErneZone && (frame%14<8)) textC('ERNE ZONE', pr.sx, Math.round(pr.gy+3), 1, '#7bff8a');
     else if(HUMAN.cy>KN && (frame%14<8)) textC('NVZ!', pr.sx, Math.round(pr.gy+3), 1, C.p1);
     // wide incoming ball: around-the-post chance
