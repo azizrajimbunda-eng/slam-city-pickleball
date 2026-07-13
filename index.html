@@ -261,6 +261,7 @@
       <button class="pix" id="btnControl" data-accent="p1">🎮 Take Control</button>
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
       <button class="pix" id="btnSfx">♪ SFX Off</button>
+      <button class="pix" id="btnMusic">🎵 Music Off</button>
       <button class="pix" id="btnVoice">🎙 Voice On</button>
       <button class="pix" id="btnHaptics">📳 Haptics On</button>
       <button class="pix" id="btnReset">↺ Reset</button>
@@ -444,21 +445,93 @@
     const o=actx.createOscillator(),g=actx.createGain(); o.type=type||'square'; o.frequency.setValueAtTime(f,t0);
     g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(v||0.07,t0+0.005);
     g.gain.exponentialRampToValueAtTime(0.0001,t0+d); o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+d+0.02); }
+  // filtered-noise buffer for crowd sound — cheap, textured "crowd" is broadband
+  // noise shaped by a bandpass filter, not something oscillator beeps can fake
+  let noiseBuf=null;
+  function getNoiseBuffer(){
+    if(noiseBuf || !actx) return noiseBuf;
+    const len=actx.sampleRate; noiseBuf=actx.createBuffer(1,len,actx.sampleRate);
+    const d=noiseBuf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+    return noiseBuf;
+  }
+  function crowdNoise(dur,peakGain,filterFreq){
+    if(!sfxOn || !actx) return;
+    const buf=getNoiseBuffer(); if(!buf) return;
+    const src=actx.createBufferSource(); src.buffer=buf; src.loop=true;
+    const filt=actx.createBiquadFilter(); filt.type='bandpass'; filt.frequency.value=filterFreq||900; filt.Q.value=0.7;
+    const g=actx.createGain(); const t0=actx.currentTime;
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(peakGain,t0+dur*0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    src.connect(filt); filt.connect(g); g.connect(actx.destination);
+    src.start(t0); src.stop(t0+dur+0.05);
+  }
   const sfx={ pock(){beep(520+Math.random()*70,0.05,'square',0.055);}, dink(){beep(720,0.04,'triangle',0.05);},
     smash(){beep(240,0.10,'sawtooth',0.11); beep(880,0.05,'square',0.05);},
     point(){beep(330,0.08,'square',0.07); setTimeout(()=>beep(220,0.13,'square',0.07),90);},
     net(){beep(150,0.12,'square',0.09);}, bounce(){beep(240,0.035,'sine',0.045);},
-    game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));} };
+    game(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.08),i*110));},
+    // referee-style descending toot for a rule fault (kitchen/two-bounce), distinct
+    // from a plain rally-ending point so a violation actually sounds like one
+    whistle(){ if(!sfxOn||!actx) return; const t0=actx.currentTime;
+      const o=actx.createOscillator(),g=actx.createGain(); o.type='square';
+      o.frequency.setValueAtTime(1200,t0); o.frequency.exponentialRampToValueAtTime(700,t0+0.18);
+      g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.09,t0+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.2);
+      o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+0.22); },
+    crowdCheer(){ crowdNoise(1.4,0.09,1400); },
+    crowdMurmur(){ crowdNoise(0.9,0.035,500); } };
+
+  // ---- procedural background music: a short looping arcade bassline + blips,
+  // scheduled a little ahead of playback time (the standard Web Audio pattern —
+  // setTimeout alone drifts, scheduling against actx.currentTime doesn't) ----
+  let musicOn=false;
+  const musicState={ nextNoteTime:0, step:0, timer:null };
+  const MUSIC_BPM=126;
+  // walking bassline + sparse lead blips over an 8-step loop (0 = rest)
+  const musicBass=[130.81,130.81,164.81,146.83,130.81,130.81,196.00,174.61];
+  const musicLead=[523.25,0,659.25,0,587.33,0,783.99,0];
+  function scheduleNote(time,freq,dur,type,vol){
+    if(!freq) return;
+    const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq,time);
+    g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(vol,time+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,time+dur);
+    o.connect(g); g.connect(actx.destination); o.start(time); o.stop(time+dur+0.02);
+  }
+  function musicScheduler(){
+    if(!musicOn || !actx){ musicState.timer=null; return; }
+    if(running){
+      // tempo nudges up with pace (hand battles, smashes) — subtle, not a full remix
+      const stepDur=60/MUSIC_BPM/2/Math.max(0.6,curPace());
+      while(musicState.nextNoteTime < actx.currentTime+0.15){
+        const i=musicState.step%8;
+        scheduleNote(musicState.nextNoteTime,musicBass[i],stepDur*0.9,'triangle',0.045);
+        scheduleNote(musicState.nextNoteTime,musicLead[i],stepDur*0.5,'square',0.03);
+        musicState.nextNoteTime+=stepDur; musicState.step++;
+      }
+    }
+    musicState.timer=setTimeout(musicScheduler,100);
+  }
+  function startMusic(){ if(!actx || musicState.timer) return; musicState.nextNoteTime=actx.currentTime+0.05; musicState.step=0; musicScheduler(); }
+  function stopMusic(){ if(musicState.timer){ clearTimeout(musicState.timer); musicState.timer=null; } }
 
   // ---- announcer: browser speech synthesis, arcade-referee cadence ----
   // speaks only while the human is playing (guarantees a user gesture happened,
   // and keeps attract mode quiet). Lines queue naturally — cancel-then-speak
   // drops utterances on iOS, and Chrome silences GC'd utterances mid-word.
   let voiceOn=true, curUtter=null;
-  function say(text){
+  function say(text, retriesLeft){
     if(!voiceOn || !controlMode) return;
     try{
       if(typeof speechSynthesis==='undefined' || typeof SpeechSynthesisUtterance==='undefined') return;
+      // voice list loads asynchronously and is often still empty right after page
+      // load (confirmed: 0 voices immediately on a fresh load, populating ~1s+
+      // later, with no reliable 'voiceschanged' event on some engines) — speaking
+      // before any voice has resolved gets silently dropped on iOS Safari, which is
+      // exactly when the very first serve-call line fires. Retry a few times, then
+      // just speak anyway (worst case a still-defaulted voice is a harmless no-op).
+      const left = retriesLeft===undefined ? 4 : retriesLeft;
+      if(speechSynthesis.getVoices().length===0 && left>0){ setTimeout(()=>say(text,left-1), 400); return; }
       const u=new SpeechSynthesisUtterance(text);
       u.rate=1.0; u.pitch=0.75; u.volume=0.9;
       u.onend=u.onerror=()=>{ if(curUtter===u) curUtter=null; };
@@ -654,8 +727,8 @@
       else if(!atNet && Math.random()<0.10){ type='lob'; popup('LOB!', ball.cx, ball.cy, ball.cz+0.4, rt===0?C.p1:C.p2, false); }
       else type='dink';
     }
-    if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; }
-    if(shotCount===12){ popup('CROWD ON FIRE!', 0, 0.5, 1.5, C.ball, true); crowdJump=30; }
+    if(shotCount===8){ popup('INTENSE!', 0, 0.5, 1.4, C.ball, true); intenseFlash=28; crowdNoise(1.6,0.045,700); }
+    if(shotCount===12){ popup('CROWD ON FIRE!', 0, 0.5, 1.5, C.ball, true); crowdJump=30; crowdNoise(1.8,0.08,1600); }
     if(shotCount===3 && !forcedType) popup('drop', ball.cx, ball.cy, ball.cz+0.3, rt===0?C.p1:C.p2, false);
     // pose the hitter's swing animation by shot family
     p.swingType = (type==='smash'||type==='atp')?'smash' : type==='lob'?'lob'
@@ -673,7 +746,10 @@
     popup(lastReason, ball.cx, ball.cy, ball.cz+0.4, col, true);
     burstCourt(ball.cx, ball.cy, 12, '#d9c9a0', 2.2, true);
     shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
-    if(reason==='NET') sfx.net(); else sfx.point();
+    if(reason==='NET') sfx.net();
+    else if(reason==='KITCHEN!'||reason==='TWO BOUNCE!') sfx.whistle();
+    else sfx.point();
+    crowdNoise(1.1, 0.05+Math.min(0.05,rally*0.004), 1000+rally*30);   // a bigger cheer the longer the rally ran
     haptic(winner===0 ? 24 : [8,30,8]);   // one solid pulse when your team wins, a double-tap when it doesn't
     ball.active=false; handBattle=0; hbCount=0;
     prevServing=servingTeam; lastWinner=winner;
@@ -700,6 +776,7 @@
     const other=1-winner;
     if(scored && score[winner]>=11 && score[winner]-score[other]>=2){
       gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
+      crowdNoise(2.4, 0.11, 1800);
       if(!reducedMotion){ hitStop=Math.max(hitStop,6); camZoomTarget=Math.max(camZoomTarget,1.3); }
       haptic(winner===0 ? [30,60,30,60,60] : [15,40,15]);
       say('Game! '+(winner===0?'Red':'Cyan')+' team wins');
@@ -1297,7 +1374,8 @@
 
   // ================= controls =================
   const btnControl=document.getElementById('btnControl'), btnPlay=document.getElementById('btnPlay'),
-        btnSfx=document.getElementById('btnSfx'), btnReset=document.getElementById('btnReset');
+        btnSfx=document.getElementById('btnSfx'), btnMusic=document.getElementById('btnMusic'),
+        btnReset=document.getElementById('btnReset');
   const syncPlay=()=>{ btnPlay.textContent=running?'⏸ Pause':'▶ Play'; };
   btnPlay.addEventListener('click',()=>{ ensureAudio(); running=!running; syncPlay(); });
 
@@ -1411,6 +1489,9 @@
   }
   btnSfx.addEventListener('click',()=>{ sfxOn=!sfxOn; ensureAudio(); if(sfxOn&&actx&&actx.state==='suspended') actx.resume();
     btnSfx.textContent=sfxOn?'♪ SFX On':'♪ SFX Off'; });
+  btnMusic.addEventListener('click',()=>{ musicOn=!musicOn; ensureAudio(); if(actx&&actx.state==='suspended') actx.resume();
+    if(musicOn) startMusic(); else stopMusic();
+    btnMusic.textContent=musicOn?'🎵 Music On':'🎵 Music Off'; });
   const btnVoice=document.getElementById('btnVoice');
   btnVoice.addEventListener('click',()=>{ voiceOn=!voiceOn;
     if(!voiceOn && typeof speechSynthesis!=='undefined') try{ speechSynthesis.cancel(); }catch(e){}
