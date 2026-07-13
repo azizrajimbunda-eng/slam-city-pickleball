@@ -242,6 +242,7 @@
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
       <button class="pix" id="btnSfx">♪ SFX Off</button>
       <button class="pix" id="btnVoice">🎙 Voice On</button>
+      <button class="pix" id="btnHaptics">📳 Haptics On</button>
       <button class="pix" id="btnReset">↺ Reset</button>
       <button class="pix" id="btnFull">⛶ Full</button>
       <span class="spacer"></span>
@@ -353,6 +354,9 @@
   const curPace=()=>lerp(cfg().pace, FAST_PACE, clamp(paceBoost,0,1));
 
   let running=!reducedMotion, sfxOn=false, frame=0;
+  let hapticsOn=true;
+  const canVibrate = typeof navigator!=='undefined' && typeof navigator.vibrate==='function';
+  function haptic(pattern){ if(hapticsOn && canVibrate && controlMode) navigator.vibrate(pattern); }
 
   // ================= entities =================
   // teams: 0 = near (red, bottom), 1 = far (cyan, top)
@@ -392,6 +396,8 @@
   // effects
   let shakeMag=0, shakeX=0, shakeY=0, flash=0, crowdJump=0, intenseFlash=0;
   let gameBanner=0, gameWinner=-1;
+  // hit-stop: freeze the sim a few frames on a big contact, camera punches in on the ball
+  let hitStop=0, camZoom=1, camZoomTarget=1;
   const particles=[], popups=[];
 
   function baselineCy(t){ return t===0?-0.06:1.06; }  // behind the baseline line (drawn at cy 0/1) — pickleball has no separate service line
@@ -452,6 +458,7 @@
     players[2].lane=-1; players[3].lane=1;
     serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
+    hitStop=0; camZoom=1; camZoomTarget=1;
     startPoint();
   }
 
@@ -566,8 +573,10 @@
       handBattle=46; hbCount++;
     } else if(type==='dink'||type==='drop'||type==='lob'){ handBattle=0; hbCount=0; }
     // fx
-    if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16); }
-    else if(type==='atp'){ popup('ATP!!', ball.cx, ball.cy, ball.cz+0.6, '#7bff8a', true); confetti(); shake(2.5*c.shake); doFlash(0.3); sfx.smash(); crowdJump=Math.max(crowdJump,20); }
+    if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16);
+      if(!reducedMotion){ hitStop=Math.max(hitStop,4); camZoomTarget=Math.max(camZoomTarget,1.35); } }
+    else if(type==='atp'){ popup('ATP!!', ball.cx, ball.cy, ball.cz+0.6, '#7bff8a', true); confetti(); shake(2.5*c.shake); doFlash(0.3); sfx.smash(); crowdJump=Math.max(crowdJump,20);
+      if(!reducedMotion){ hitStop=Math.max(hitStop,5); camZoomTarget=Math.max(camZoomTarget,1.4); } }
     else if(type==='drive'){ sfx.pock(); shake(1.2*c.shake); }
     else if(type==='dink'){ sfx.dink(); }
     else sfx.pock();
@@ -634,6 +643,7 @@
     burstCourt(ball.cx, ball.cy, 12, '#d9c9a0', 2.2, true);
     shake((reason==='NET'?1.6:2.4)*cfg().shake); doFlash(0.5); crowdJump=22;
     if(reason==='NET') sfx.net(); else sfx.point();
+    haptic(winner===0 ? 24 : [8,30,8]);   // one solid pulse when your team wins, a double-tap when it doesn't
     ball.active=false; handBattle=0; hbCount=0;
     prevServing=servingTeam; lastWinner=winner;
     if(scored){
@@ -659,6 +669,8 @@
     const other=1-winner;
     if(scored && score[winner]>=11 && score[winner]-score[other]>=2){
       gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
+      if(!reducedMotion){ hitStop=Math.max(hitStop,6); camZoomTarget=Math.max(camZoomTarget,1.3); }
+      haptic(winner===0 ? [30,60,30,60,60] : [15,40,15]);
       say('Game! '+(winner===0?'Red':'Cyan')+' team wins');
     } else {
       const line = SPOKEN[lastReason]||'Point';
@@ -800,6 +812,8 @@
       else popup(q==='perfect'?'PERFECT!':q==='good'?'GOOD':'BAD',
             HUMAN.cx, HUMAN.cy, 1.05, q==='perfect'?'#7bff8a':q==='good'?C.ball:C.p1, q!=='good');
       if(choiceNote) popup(choiceNote, HUMAN.cx, HUMAN.cy, 1.5, C.p1, false);
+      // contact buzz: a light tap for a normal hit, stronger for a smash/erne/ATP or a perfect
+      haptic(erne||isAtp||type==='smash' ? 22 : q==='perfect' ? 14 : 8);
       // direction held at contact = aim
       const aim={ x:(keys['a']||keys['arrowleft']?-1:0)+(keys['d']||keys['arrowright']?1:0)+touchVec.x,
                   y:(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-1:0)+touchVec.y };
@@ -854,6 +868,10 @@
     if(shakeMag>0.05){ shakeX=(Math.random()*2-1)*shakeMag; shakeY=(Math.random()*2-1)*shakeMag; shakeMag*=0.82; }
     else { shakeMag=0; shakeX=0; shakeY=0; }
     if(flash>0) flash*= reducedMotion?0.86:0.80;
+    // camera punch: ease toward the target zoom; hold the target while hit-stop is
+    // frozen (so zoom actually catches up to it) before letting it decay back to 1x
+    camZoom += (camZoomTarget-camZoom)*0.14;
+    if(hitStop<=0) camZoomTarget = camZoomTarget>1.002 ? 1+(camZoomTarget-1)*0.93 : 1;
     if(paceBoost>0.002) paceBoost*=0.90; else paceBoost=0;   // ease back toward slow
     if(handBattle>0){ handBattle--; paceBoost=Math.max(paceBoost,0.85); if(handBattle===0) hbCount=0; }
     // long-rally crowd sparkle
@@ -871,6 +889,9 @@
   // hand battles) slot in as new cases
   function update(){
     frame++;
+    // hit-stop: freeze the sim on a big contact for a few frames, but keep juice
+    // (particles, shake, camera, flash) alive so the freeze doesn't feel dead
+    if(hitStop>0){ hitStop--; updateEffects(); return; }
     if(humanShotTimer>0) humanShotTimer--;
     switch(phase){
       case 'serve':
@@ -1202,6 +1223,13 @@
   function render(){
     ctx.fillStyle='#08061a'; ctx.fillRect(0,0,W,H);
     ctx.save(); ctx.translate(Math.round(shakeX),Math.round(shakeY));
+    // camera punch: scale around the ball's on-screen position (clamped so the
+    // pivot never sits at the very edge and reveals empty canvas)
+    if(camZoom>1.001){
+      const pr=proj(ball.cx,ball.cy,ball.cz);
+      const fx=clamp(pr.sx,40,W-40), fy=clamp(pr.sy,HUD_H+20,H-10);
+      ctx.translate(fx,fy); ctx.scale(camZoom,camZoom); ctx.translate(-fx,-fy);
+    }
 
     drawStandsAndCrowd();
     drawCourt();
@@ -1341,6 +1369,11 @@
   btnVoice.addEventListener('click',()=>{ voiceOn=!voiceOn;
     if(!voiceOn && typeof speechSynthesis!=='undefined') try{ speechSynthesis.cancel(); }catch(e){}
     btnVoice.textContent=voiceOn?'🎙 Voice On':'🎙 Voice Off'; });
+  const btnHaptics=document.getElementById('btnHaptics');
+  if(canVibrate){
+    btnHaptics.addEventListener('click',()=>{ hapticsOn=!hapticsOn;
+      btnHaptics.textContent=hapticsOn?'📳 Haptics On':'📳 Haptics Off'; });
+  } else { btnHaptics.style.display='none'; }
   btnReset.addEventListener('click',()=>{ reset(); if(!running){ running=true; syncPlay(); } });
 
   // fullscreen (iOS 16.4+, Android, desktop); hidden where the API is unavailable
