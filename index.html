@@ -260,8 +260,8 @@
     <div class="deck">
       <button class="pix" id="btnControl" data-accent="p1">🎮 Take Control</button>
       <button class="pix" id="btnPlay" data-accent="ball">▶ Play</button>
-      <button class="pix" id="btnSfx">♪ SFX Off</button>
-      <button class="pix" id="btnMusic">🎵 Music Off</button>
+      <button class="pix" id="btnSfx">♪ SFX On</button>
+      <button class="pix" id="btnMusic">🎵 Music On</button>
       <button class="pix" id="btnVoice">🎙 Voice On</button>
       <button class="pix" id="btnHaptics">📳 Haptics On</button>
       <button class="pix" id="btnReset">↺ Reset</button>
@@ -385,7 +385,7 @@
   let paceBoost=0; const FAST_PACE=0.92;
   const curPace=()=>lerp(cfg().pace, FAST_PACE, clamp(paceBoost,0,1));
 
-  let running=!reducedMotion, sfxOn=false, frame=0;
+  let running=!reducedMotion, sfxOn=true, frame=0;
   let hapticsOn=true;
   const canVibrate = typeof navigator!=='undefined' && typeof navigator.vibrate==='function';
   function haptic(pattern){ if(hapticsOn && canVibrate && controlMode) navigator.vibrate(pattern); }
@@ -440,7 +440,14 @@
 
   // ================= audio =================
   let actx=null;
-  function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ actx=null; } } }
+  function ensureAudio(){
+    if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ actx=null; } }
+    // iOS (and some other engines) can still hand back a *suspended* context even
+    // when construction happens inside a genuine user gesture — without an explicit
+    // resume() here, every sound stays silently blocked forever, regardless of the
+    // SFX/Music toggles being on
+    if(actx && actx.state==='suspended'){ try{ actx.resume(); }catch(e){} }
+  }
   function beep(f,d,type,v){ if(!sfxOn||!actx) return; const t0=actx.currentTime;
     const o=actx.createOscillator(),g=actx.createGain(); o.type=type||'square'; o.frequency.setValueAtTime(f,t0);
     g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(v||0.07,t0+0.005);
@@ -484,7 +491,7 @@
   // ---- procedural background music: a short looping arcade bassline + blips,
   // scheduled a little ahead of playback time (the standard Web Audio pattern —
   // setTimeout alone drifts, scheduling against actx.currentTime doesn't) ----
-  let musicOn=false;
+  let musicOn=true;
   const musicState={ nextNoteTime:0, step:0, timer:null };
   const MUSIC_BPM=126;
   // walking bassline + sparse lead blips over an 8-step loop (0 = rest)
@@ -1385,6 +1392,7 @@
   cv.addEventListener('mousedown',()=>cv.focus());
   function setControl(on){
     controlMode=on; ensureAudio();
+    if(musicOn) startMusic();   // musicOn defaults true, but actx only exists post-gesture — kick it off here
     if(on){ running=true; syncPlay(); cv.focus(); }
     else {
       if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; }  // hand the serve back to the AI
