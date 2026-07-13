@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>SLAM CITY — 8-Bit Pickleball</title>
 <meta name="theme-color" content="#08061a">
 <link rel="manifest" href="manifest.json">
@@ -151,8 +151,14 @@
   }
 
   /* ---- mobile app mode (body.mobile, set for touch devices): the game IS the
-     screen — no page chrome, no scroll; the deck hides behind a ⚙ menu ---- */
-  body.mobile{ padding:0; gap:0; height:100dvh; min-height:0; overflow:hidden; justify-content:flex-start; }
+     screen — no page chrome, no scroll; the deck hides behind a ⚙ menu ----
+     touch-action/user-select/callout are killed page-wide here, not just on the
+     controls: without this, a long hold anywhere fires iOS's text-selection
+     callout (Cut/Copy/Look Up) and the page still pinch/double-tap zooms,
+     fighting the joystick's own pointer events for gesture ownership. */
+  body.mobile{ padding:0; gap:0; height:100dvh; min-height:0; overflow:hidden; justify-content:flex-start;
+    touch-action:none; overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
   body.mobile .marquee, body.mobile .caption{ display:none; }
   body.mobile .stage{ max-width:none; height:100dvh; gap:0; }
   body.mobile .cabinet{ background:none; border:none; border-radius:0; padding:0; box-shadow:none;
@@ -1237,6 +1243,11 @@
   if('ontouchstart' in window || navigator.maxTouchPoints>0){
     padDeck.classList.add('on');
     document.body.classList.add('mobile');   // app mode: full-bleed game, deck behind the ⚙ menu
+    // belt-and-suspenders for the CSS touch-action:none above: older WebKit still
+    // fires 'gesturestart' for pinch-zoom outside the touch-action spec, and a
+    // stray second finger during a rally shouldn't ever pan/zoom the page
+    document.addEventListener('gesturestart', e=>e.preventDefault());
+    document.addEventListener('touchmove', e=>{ if(e.touches.length>1) e.preventDefault(); }, {passive:false});
   }
   const btnGear=document.getElementById('btnGear');
   btnGear.addEventListener('click',()=>{ ensureAudio(); document.body.classList.toggle('menuOpen'); });
