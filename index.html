@@ -350,7 +350,7 @@
   // teams: 0 = near (red, bottom), 1 = far (cyan, top)
   function mkPlayer(team, lane){
     return { team, lane, cx:lane*0.45, cy: team===0?0.06:0.94, tx:lane*0.45, ty:team===0?0.06:0.94,
-             anim:0, swing:0, paddleSide:1, diving:0, swingType:null,
+             anim:0, swing:0, paddleSide:1, backhand:false, diving:0, swingType:null,
              mvx:0, mvy:0, swinging:0, swingShot:null };  // mvx/mvy: smoothed human velocity; swinging: active swing window
   }
   const players = [ mkPlayer(0,-1), mkPlayer(0,1), mkPlayer(1,-1), mkPlayer(1,1) ];
@@ -388,6 +388,9 @@
 
   function baselineCy(t){ return t===0?0.06:0.94; }
   function netCy(t){ return t===0?0.30:0.70; }
+  // right-handed players: forehand side is absolute +x for the near team, -x for the far
+  // team (they face opposite baselines, so "their right" mirrors across teams)
+  function forehandSide(t){ return t===0?1:-1; }
 
   // ================= audio =================
   let actx=null;
@@ -442,8 +445,10 @@
   function startPoint(){
     shotCount=0; rally=0; ball.active=false; ball.bounced=0; ball.trail.length=0;
     const rt = 1-servingTeam;
-    // serve target: cross-court deep into receiver's box
-    const serverLane = serverIdx===0? -1 : 1;
+    // serve target: cross-court deep into receiver's box (box comes from the server's
+    // actual current lane, which swaps with their partner each time they score)
+    const sp = team(servingTeam)[serverIdx];
+    const serverLane = sp.lane;
     const tcx = -serverLane*0.5;
     // formation
     for(const p of players){
@@ -457,7 +462,6 @@
       p.swing=0; p.diving=0;
     }
     // put ball at server
-    const sp = team(servingTeam)[serverIdx];
     ball.cx = sp.lane*0.45; ball.cy = baselineCy(servingTeam); ball.cz = HIT_Z;
     ball.tcx = tcx; ball.tcy = baselineCy(rt);
     // referee announces the score call
@@ -558,7 +562,7 @@
 
   function serverHit(quality){
     const sp = team(servingTeam)[serverIdx];
-    sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1; sp.swingType='lob';  // underhand serve = scoop motion
+    sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1; sp.swingType='lob'; sp.backhand=false;  // underhand serve = scoop motion
     shotCount=1;
     launch(servingTeam,'serve',quality);
     popup('SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
@@ -576,7 +580,7 @@
 
   function doReturn(rt, p, forcedType, quality, aim){
     shotCount++; rally=Math.max(rally,shotCount-1); if(rally>maxRally) maxRally=rally;
-    p.swing=1; p.paddleSide = ball.cx>p.cx?1:-1;
+    p.swing=1; p.paddleSide = ball.cx>p.cx?1:-1; p.backhand = p.paddleSide!==forehandSide(p.team);
     let type;
     if(forcedType) type=forcedType;         // human-chosen shot
     else if(shotCount===2) type='return';
@@ -620,12 +624,18 @@
     ball.active=false; handBattle=0; hbCount=0;
     prevServing=servingTeam; lastWinner=winner;
     if(scored){
-      serverIdx=1-serverIdx;                 // server keeps serving, switching courts
+      // same server keeps serving; they and their partner swap sides (rulebook: the
+      // switch happens on scoring, not on winning the serve back)
+      const [pA,pB] = team(servingTeam); const t=pA.lane; pA.lane=pB.lane; pB.lane=t;
       lastDetail=null;
     } else if(firstTurn || serverNum===2){
-      // side-out: service passes; new team starts on server 1, right court first
+      // side-out: service passes; the new team's server is whoever is standing in the
+      // court matching their score's parity (even=right, odd=left; right is mirrored
+      // per team since they face opposite baselines)
       servingTeam=winner; serverNum=1; firstTurn=false;
-      serverIdx = servingTeam===0 ? 1 : 0;
+      const rightLane = winner===0 ? 1 : -1;
+      const wantLane = score[winner]%2===0 ? rightLane : -rightLane;
+      serverIdx = team(winner)[0].lane===wantLane ? 0 : 1;
       lastDetail='SIDE OUT';
     } else {
       serverNum=2; serverIdx=1-serverIdx;    // first fault: partner serves
@@ -755,6 +765,9 @@
       let err=dxAbs/0.20;
       if(ball.cz>0.95) err += (ball.cz-0.95)*0.7;    // high ball is tougher to control
       if(ball.cz<0.22) err += (0.22-ball.cz)*1.3;    // low, dug-out ball is tougher
+      // backhand contact (ball on the off-hand side): harder to control than a forehand
+      const backhand = !erne && (ball.cx>HUMAN.cx?1:-1)!==forehandSide(HUMAN.team);
+      if(backhand) err += 0.16;
       HUMAN.swinging=0;
       let type = HUMAN.swingShot || (HUMAN.cy<0.40 ? 'dink' : 'drive');
       const isAtp = !erne && Math.abs(ball.cx)>0.82 && Math.abs(HUMAN.cx)>0.78;
@@ -767,6 +780,7 @@
         else if(type==='dink' && ball.cz>0.85){ choiceNote='SITTER!'; }
         else if(type===suit){ err=Math.max(0,err-0.12); }
       }
+      if(backhand && !choiceNote) choiceNote='BACKHAND';
       const q = err<0.40 ? 'perfect' : err<0.78 ? 'good' : 'bad';
       if(erne){ type='smash'; popup('ERNE!!', HUMAN.cx, HUMAN.cy, 1.3, '#7bff8a', true); confetti(); crowdJump=Math.max(crowdJump,20); }
       else if(isAtp) type='atp';  // wide ball, wide player: around the post
@@ -782,7 +796,12 @@
     // two-bounce rule and never volleys from inside the kitchen (waits for the bounce)
     if(responsible && responsible.team===rt && !(controlMode && responsible===HUMAN) && inReach(responsible, 0.17)){
       const mustBounce = ball.bounced===0 && (shotCount<=2 || inKitchen(responsible));
-      if(!mustBounce){ doReturn(rt, responsible); return true; }
+      if(!mustBounce){
+        // backhand contact: harder to control, so it occasionally pops up short
+        const backhand = (ball.cx>responsible.cx?1:-1)!==forehandSide(responsible.team);
+        const q = backhand && Math.random()<0.30 ? 'bad' : undefined;
+        doReturn(rt, responsible, undefined, q); return true;
+      }
     }
     // out of bounds
     if(Math.abs(ball.cx)>1.03 || ball.cy<-0.05 || ball.cy>1.05){
@@ -967,6 +986,7 @@
     if(facingUs){ px(cx-1+lean, hy+Math.round(1.5*s), Math.max(1,Math.round(1*s)), Math.max(1,Math.round(1*s)), '#201830'); } // eyes hint
     // arm + paddle: pose depends on the shot being hit
     const sw=p.swing; const side=p.paddleSide||1; const st=p.swingType;
+    const bh = !!p.backhand;
     let ax=cx + Math.round((3+ (dive?7:0))*s)*side + lean;
     let ay=torY + dirY*Math.round((3 + 6*sw)*s);
     if(sw>0.05){
@@ -974,17 +994,22 @@
       else if(st==='drive'){ ax = cx + side*Math.round((5+7*sw)*s) + lean; ay = torY + Math.round(1*s); }      // flat sideways rip
       else if(st==='lob'){ ay = torY + Math.round((7-11*sw)*s); ax = cx + side*Math.round(4*s) + lean; }       // low-to-high scoop
       else if(st==='dink'){ ax = cx + side*Math.round((4+2*sw)*s) + lean; ay = torY + dirY*Math.round((2+2*sw)*s); } // soft tap
+      // backhand: the paddle stays tucked and crosses the body instead of reaching wide,
+      // and the swing sweeps in from the far shoulder — same shot shape, compact motion
+      if(bh){ ax = cx - side*Math.round((1+1.5*sw)*s) + lean; }
     }
     ctx.strokeStyle=facingUs?C.skin:cold; ctx.lineWidth=Math.max(1,Math.round(s));
-    ctx.beginPath(); ctx.moveTo(cx+lean, torY+Math.round(2*s)); ctx.lineTo(ax,ay); ctx.stroke();
-    // swing streak for power shots
-    if(sw>0.5 && (st==='drive'||st==='smash') && !reducedMotion){
+    ctx.beginPath(); ctx.moveTo(cx+(bh?-side:side)*Math.round(1.5*s)+lean, torY+Math.round(2*s)); ctx.lineTo(ax,ay); ctx.stroke();
+    // swing streak for power shots (backhands are more of a block/redirect — no streak)
+    if(sw>0.5 && (st==='drive'||st==='smash') && !bh && !reducedMotion){
       ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.moveTo(ax-side*3, ay+2); ctx.lineTo(ax-side*8, ay+4);
       ctx.moveTo(ax-side*2, ay-2); ctx.lineTo(ax-side*6, ay-3); ctx.stroke();
     }
     px(ax-Math.round(1.5*s), ay-Math.round(3*s), Math.max(2,Math.round(3*s)), Math.max(3,Math.round(6*s)), col);
     px(ax-Math.round(0.5*s), ay-Math.round(2*s), Math.max(1,Math.round(1.5*s)), Math.max(2,Math.round(3*s)), '#ffe0b0');
+    // second hand braced on the grip: the two-handed backhand pickleball players actually use
+    if(bh && sw>0.05){ px(ax-Math.round(1.5*s)+side*Math.round(2*s), ay-Math.round(1*s), Math.max(1,Math.round(2*s)), Math.max(1,Math.round(2*s)), col); }
   }
 
   function drawBall(){
