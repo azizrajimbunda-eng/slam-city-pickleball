@@ -92,28 +92,46 @@
   .caption b{ color:var(--ink); font-weight:600; }
   .caption .foot{ display:block; margin-top:8px; font-size:11px; letter-spacing:.06em; color:#5f5885; }
 
-  /* ---- touch pad: arcade joystick + shot buttons (coarse-pointer devices) ---- */
-  .padDeck{ display:none; margin-top:12px; align-items:center; justify-content:space-between; gap:12px;
+  /* ---- touch pad: floating joystick + diamond shot buttons (coarse-pointer devices) ---- */
+  .padDeck{ display:none; margin-top:12px; align-items:center; justify-content:space-between; gap:16px;
     touch-action:none; -webkit-user-select:none; user-select:none; }
   .padDeck.on{ display:flex; }
-  .stickZone{ flex:0 0 auto; width:118px; height:118px; position:relative; touch-action:none; }
-  .stickBase{ position:absolute; inset:0; border-radius:50%;
-    background:radial-gradient(circle at 50% 42%, #221a40 0%, #120d26 70%);
-    border:2px solid var(--line); box-shadow:inset 0 4px 14px rgba(0,0,0,.6); }
-  .stickNub{ position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px 0 0 -26px;
+
+  /* joystick: the whole zone is the catcher — touch anywhere in it and the stick
+     appears right under your thumb, instead of requiring a precise touch-down spot */
+  .stickZone{ flex:0 0 auto; width:132px; height:132px; position:relative; touch-action:none;
+    border-radius:50%; background:rgba(255,255,255,.03); border:1px dashed rgba(255,255,255,.10); }
+  .stickBase{ position:absolute; left:50%; top:50%; width:96px; height:96px; margin:-48px 0 0 -48px;
+    border-radius:50%; background:radial-gradient(circle at 50% 42%, #221a40 0%, #120d26 70%);
+    border:2px solid var(--line); box-shadow:inset 0 4px 14px rgba(0,0,0,.6);
+    opacity:0; transition:opacity .12s; pointer-events:none; }
+  .stickBase.show{ opacity:1; }
+  .stickNub{ position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px;
     border-radius:50%; background:linear-gradient(180deg,#3a2d63,#1c1636);
     border:2px solid var(--bezel-hi); box-shadow:0 4px 10px rgba(0,0,0,.55), inset 0 2px 0 rgba(255,255,255,.08);
-    pointer-events:none; }
-  .padBtns{ display:grid; grid-template-columns:repeat(2,64px); gap:10px; justify-items:center; }
-  button.tb{ appearance:none; width:64px; height:64px; border-radius:50%; cursor:pointer;
+    opacity:0; transition:opacity .12s; pointer-events:none; }
+  .stickNub.show{ opacity:1; }
+
+  /* shot buttons: a diamond around a natural thumb pivot, not a cramped grid.
+     DINK (bottom) and DRIVE (right) sit at easy thumb-rest reach — they're the
+     shots you throw constantly in a rally; SMASH (top) and LOB (left) take a
+     deliberate stretch, matching how often you'd actually reach for them. */
+  .padBtns{ position:relative; width:168px; height:168px; flex:0 0 auto; }
+  button.tb{ appearance:none; position:absolute; width:56px; height:56px; margin:-28px 0 0 -28px;
+    border-radius:50%; cursor:pointer;
     font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--ink);
     background:linear-gradient(180deg,#211a3c,#140f28); border:2px solid var(--line);
     box-shadow:inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f;
     touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   button.tb:active{ transform:translateY(2px); box-shadow:inset 0 -2px 0 rgba(0,0,0,.5), 0 1px 0 #05040f; }
   button.tb.hint{ border-color:#7bd86a; box-shadow:0 0 12px 2px rgba(123,255,138,.55), inset 0 -4px 0 rgba(0,0,0,.5), 0 3px 0 #05040f; }
-  button.tb.dink{ border-color:var(--p2); } button.tb.drive{ border-color:var(--ball); }
-  button.tb.smash{ border-color:var(--p1); } button.tb.lob{ border-color:#7bd86a; }
+  /* 17%/83% keeps each 56-58px button's full circle inside the container at any
+     of the two sizes below (bleeding past the box would eat into the page's own
+     edge margin — verified this the hard way, see commit history) */
+  button.tb.smash{ border-color:var(--p1); left:50%; top:17%; }
+  button.tb.dink{ border-color:var(--p2); left:50%; top:83%; }
+  button.tb.lob{ border-color:#7bd86a; left:17%; top:50%; }
+  button.tb.drive{ border-color:var(--ball); left:83%; top:50%; }
 
   @media (max-width:600px){
     body{ padding:12px 8px 24px; gap:10px; }
@@ -134,13 +152,17 @@
     .cabinet::before, .cabinet::after{ display:none; }
     .screen{ display:flex; justify-content:center; }
     canvas{ height:min(calc(100dvh - 60px), 75vw); width:auto; max-width:100%; }
-    .padDeck.on{ position:fixed; left:8px; right:8px; bottom:6px; z-index:5; margin:0;
+    /* bottom offset clears iOS's home-indicator swipe-gesture zone — without this,
+       touches near the edge are silently eaten by the OS instead of the game */
+    .padDeck.on{ position:fixed; left:10px; right:10px;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 14px); z-index:5; margin:0;
       background:none; pointer-events:none; }
     .stickZone, .padBtns{ pointer-events:auto; }
-    .stickZone{ width:96px; height:96px; opacity:.82; }
-    .stickNub{ width:44px; height:44px; margin:-22px 0 0 -22px; }
-    .padBtns{ grid-template-columns:repeat(2,52px); gap:8px; }
-    button.tb{ width:52px; height:52px; font-size:9px; opacity:.85; }
+    .stickZone{ width:156px; height:156px; opacity:.9; }
+    .stickBase{ width:100px; height:100px; margin:-50px 0 0 -50px; }
+    .stickNub{ width:48px; height:48px; margin:-24px 0 0 -24px; }
+    .padBtns{ width:176px; height:176px; opacity:.9; }
+    button.tb{ width:58px; height:58px; margin:-29px 0 0 -29px; font-size:9px; }
     .deck{ margin-top:4px; }
     .deck .tag{ display:none; }
     .deck button.pix{ padding:8px 7px; font-size:10px; }
@@ -1183,22 +1205,36 @@
 
   // ---- touch pad: joystick + shot buttons feed the same input paths as keyboard ----
   const padDeck=document.getElementById('padDeck'), stickZone=document.getElementById('stickZone'),
-        stickNub=document.getElementById('stickNub');
+        stickNub=document.getElementById('stickNub'), stickBase=stickZone.querySelector('.stickBase');
   if('ontouchstart' in window || navigator.maxTouchPoints>0) padDeck.classList.add('on');
-  let stickId=null;
+  // floating joystick: touch ANYWHERE in the zone and the stick appears right under
+  // your thumb (origin = touch-down point), instead of requiring a precise touch-down
+  // spot on a small fixed circle. Drag radius is a fixed logical distance, independent
+  // of the zone's on-screen size.
+  let stickId=null, stickOX=0, stickOY=0;
+  const STICK_R=40, STICK_DEAD=0.16;
+  function stickDown(e){
+    e.preventDefault(); stickId=e.pointerId; stickZone.setPointerCapture(stickId);
+    if(!controlMode) setControl(true);
+    const r=stickZone.getBoundingClientRect(), pad=30;
+    stickOX=clamp(e.clientX-r.left, pad, r.width-pad);
+    stickOY=clamp(e.clientY-r.top, pad, r.height-pad);
+    stickBase.style.left=stickOX+'px'; stickBase.style.top=stickOY+'px';
+    stickNub.style.left=stickOX+'px'; stickNub.style.top=stickOY+'px';
+    stickBase.classList.add('show'); stickNub.classList.add('show');
+    setStick(e);
+  }
   function setStick(e){
     const r=stickZone.getBoundingClientRect();
-    const bx=r.left+r.width/2, by=r.top+r.height/2, rad=r.width/2;
-    let vx=(e.clientX-bx)/(rad*0.72), vy=(e.clientY-by)/(rad*0.72);
+    let vx=(e.clientX-r.left-stickOX)/STICK_R, vy=(e.clientY-r.top-stickOY)/STICK_R;
     const m=Math.hypot(vx,vy); if(m>1){ vx/=m; vy/=m; }
-    const dead=0.16;
-    touchVec.x = Math.abs(vx)<dead?0:vx;
-    touchVec.y = Math.abs(vy)<dead?0:-vy;   // stick up = toward the net (+dy on near side)
-    stickNub.style.transform=`translate(${vx*rad*0.5}px,${vy*rad*0.5}px)`;
+    touchVec.x = Math.abs(vx)<STICK_DEAD?0:vx;
+    touchVec.y = Math.abs(vy)<STICK_DEAD?0:-vy;   // stick up = toward the net (+dy on near side)
+    stickNub.style.left=(stickOX+vx*STICK_R)+'px'; stickNub.style.top=(stickOY+vy*STICK_R)+'px';
   }
-  function clearStick(){ stickId=null; touchVec.x=0; touchVec.y=0; stickNub.style.transform=''; }
-  stickZone.addEventListener('pointerdown',e=>{ e.preventDefault(); stickId=e.pointerId;
-    stickZone.setPointerCapture(stickId); if(!controlMode) setControl(true); setStick(e); });
+  function clearStick(){ stickId=null; touchVec.x=0; touchVec.y=0;
+    stickBase.classList.remove('show'); stickNub.classList.remove('show'); }
+  stickZone.addEventListener('pointerdown', stickDown);
   stickZone.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) setStick(e); });
   stickZone.addEventListener('pointerup',e=>{ if(e.pointerId===stickId) clearStick(); });
   stickZone.addEventListener('pointercancel',e=>{ if(e.pointerId===stickId) clearStick(); });

@@ -55,6 +55,7 @@ function elStub(id) {
     getContext: () => ctxStub,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 118, height: 118 }),
     setPointerCapture() {},
+    querySelector: () => elStub('sub'),
   };
 }
 const els = {};
