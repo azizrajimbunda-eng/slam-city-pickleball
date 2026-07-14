@@ -320,6 +320,13 @@
   const HUD_H = 30;
   const NET_H = 0.60, GZ = 0.006, HIT_Z = 0.5;
   const KN = 0.341, KF = 0.659; // kitchen (non-volley) lines
+  // wall/court shade gradients never change (fixed stops over fixed coords) —
+  // built once instead of every frame; createLinearGradient()+addColorStop()
+  // per frame was measurable waste on top of the rest of the per-frame draw cost.
+  const wallGrad = ctx.createLinearGradient(0,HUD_H,0,farY);
+  wallGrad.addColorStop(0,C.wall); wallGrad.addColorStop(1,C.wall2);
+  const courtShadeGrad = ctx.createLinearGradient(0,farY,0,nearY);
+  courtShadeGrad.addColorStop(0,'rgba(15,107,92,0.55)'); courtShadeGrad.addColorStop(1,'rgba(47,192,168,0.12)');
   const clamp = (v,a,b)=> v<a?a : v>b?b : v;
   const lerp = (a,b,t)=> a + (b-a)*t;
   function groundY(cy){ const P = cy*(1+K)/(1+cy*K); return nearY + (farY-nearY)*P; }
@@ -1098,8 +1105,7 @@
   // ================= rendering =================
   function drawStandsAndCrowd(){
     // back wall behind far baseline
-    const g=ctx.createLinearGradient(0,HUD_H,0,farY); g.addColorStop(0,C.wall); g.addColorStop(1,C.wall2);
-    ctx.fillStyle=g; ctx.fillRect(0,HUD_H,W,farY-HUD_H);
+    ctx.fillStyle=wallGrad; ctx.fillRect(0,HUD_H,W,farY-HUD_H);
     // stadium lights
     for(const lx of [46,W-46]){ for(let r=8;r>=0;r-=2){ ctx.fillStyle=`rgba(120,150,255,${0.05+(8-r)*0.008})`; ctx.fillRect(lx-r,HUD_H,r*2,r); } px(lx-5,HUD_H,10,2,'#e9f0ff'); }
     // sponsor banner
@@ -1135,8 +1141,7 @@
     // surface
     courtPath(); ctx.fillStyle=C.court; ctx.fill();
     // subtle far-to-near shade
-    const gg=ctx.createLinearGradient(0,farY,0,nearY); gg.addColorStop(0,'rgba(15,107,92,0.55)'); gg.addColorStop(1,'rgba(47,192,168,0.12)');
-    courtPath(); ctx.fillStyle=gg; ctx.fill();
+    courtPath(); ctx.fillStyle=courtShadeGrad; ctx.fill();
     // kitchen (non-volley) zone, both sides of net
     polyCy(KN,KF); ctx.fillStyle=C.kitchen; ctx.fill();
     // lines
