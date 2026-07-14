@@ -928,6 +928,12 @@
       const mvx=0.035*pace*spdMul, mvy=0.024*pace*spdMul;
       const dx=clamp(tx-p.cx,-mvx,mvx), dy=clamp(ty-p.cy,-mvy,mvy);
       p.cx+=dx; p.cy+=dy;
+      // track the ball with paddle-facing even while holding position — AI players
+      // only updated this at their own last contact, so during a shot's natural
+      // hang time (a return/drop/lob can take 1-3+ real seconds at base pace) a
+      // correctly-positioned, legitimately-waiting player looked like a frozen
+      // statue facing the wrong way instead of a player tracking the play
+      if(ball.active && p.swing<=0) p.paddleSide = ball.cx>p.cx ? 1 : -1;
       p.anim += Math.abs(dx)*18 + Math.abs(dy)*18 + 0.04;
       if(p.swing>0) p.swing=Math.max(0,p.swing-0.12);
       if(p.diving>0) p.diving--;
