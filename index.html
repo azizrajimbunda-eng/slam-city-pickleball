@@ -993,8 +993,10 @@
       doReturn(0, HUMAN, type, erne?'perfect':q, aim); return true;
     }
     // AI responsible player hits as the ball crosses their depth — but obeys the
-    // two-bounce rule and never volleys from inside the kitchen (waits for the bounce)
-    if(responsible && responsible.team===rt && !(controlMode && responsible===HUMAN) && inReach(responsible, 0.17)){
+    // two-bounce rule and never volleys from inside the kitchen (waits for the bounce).
+    // reach was 0.17 — measured via headless trace to let contact register up to
+    // ~0.18 world units from the ball on slow dinks, reading as "swinging at nothing".
+    if(responsible && responsible.team===rt && !(controlMode && responsible===HUMAN) && inReach(responsible, 0.12)){
       const mustBounce = ball.bounced===0 && (shotCount<=2 || inKitchen(responsible));
       if(!mustBounce){
         // backhand contact: harder to control, so it occasionally pops up short
