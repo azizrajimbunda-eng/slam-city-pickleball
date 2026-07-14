@@ -660,9 +660,14 @@
   }
 
   function assignResponsible(rt){
-    // team rt must play the ball; pick the player nearest the target lane
+    // team rt must play the ball; pick whoever is physically closer to the
+    // landing spot — both across (cx) AND in depth (cy). cx-only comparison
+    // let a deep player "win" a near-net ball just by standing a hair more
+    // centered, leaving the partner already camped at the kitchen frozen
+    // (not their ball per the logic) while nobody actually covers it.
     const ps = team(rt);
-    responsible = (Math.abs(ps[0].cx - ball.tcx) <= Math.abs(ps[1].cx - ball.tcx)) ? ps[0] : ps[1];
+    const dist = p => Math.hypot(p.cx-ball.tcx, p.cy-ball.tcy);
+    responsible = dist(ps[0]) <= dist(ps[1]) ? ps[0] : ps[1];
     const c=cfg();
     // hand-battle pressure: each rapid exchange makes the next dig harder
     responsible.willMiss = (shotCount>=2) && (Math.random() < (c.missBase + shotCount*c.missRamp + (handBattle>0? 0.05*hbCount : 0)));
