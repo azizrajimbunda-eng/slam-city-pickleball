@@ -384,7 +384,7 @@
   // `pace` is a true global time-scale: it dilates ball + players together.
   // One tuned feel, like the real sport: patient dink-battle base that the
   // dynamic paceBoost surges toward FAST_PACE on drives, smashes and net battles.
-  const TUNE = { pace:0.45, missBase:0.012, missRamp:0.015, spdup:0.11, shake:0.9, bob:0.8 };
+  const TUNE = { pace:0.45, missBase:0.012, missRamp:0.015, missCap:0.22, spdup:0.11, shake:0.9, bob:0.8 };
   const cfg=()=>TUNE;
 
   // Dynamic pace: base is slow (dinks), but drives/smashes/net attacks briefly
@@ -676,8 +676,11 @@
     const dist = p => Math.hypot(p.cx-ball.tcx, p.cy-ball.tcy);
     responsible = dist(ps[0]) <= dist(ps[1]) ? ps[0] : ps[1];
     const c=cfg();
-    // hand-battle pressure: each rapid exchange makes the next dig harder
-    responsible.willMiss = (shotCount>=2) && (Math.random() < (c.missBase + shotCount*c.missRamp + (handBattle>0? 0.05*hbCount : 0)));
+    // hand-battle pressure: each rapid exchange makes the next dig harder — but
+    // capped, so a long rally or sustained hand battle never spirals past a real
+    // player's worst day into "abandons a ball sitting right in front of them"
+    const missChance = Math.min(c.missCap, c.missBase + shotCount*c.missRamp + (handBattle>0? 0.05*hbCount : 0));
+    responsible.willMiss = (shotCount>=2) && (Math.random() < missChance);
     responsible.missDir = Math.random()<0.5?-1:1;
   }
 
