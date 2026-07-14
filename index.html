@@ -909,7 +909,7 @@
         else if(Math.abs(ball.tcy-0.5) < 0.22) ty = ball.bounced>0 ? ball.tcy + (rt===0? -0.02: 0.02) : (rt===0? KN-0.02 : KF+0.02);
         else ty = lerp(netCy(rt), ball.tcy, 0.5);
         if(p.willMiss){ tx += p.missDir*0.28; }
-        spdMul=1.15;
+        spdMul=1.5;   // was 1.15 — too close to normal walk speed to read as "hustling" for a live ball
         if(p.willMiss && Math.abs(ball.cx-p.cx)<0.35 && ball.vz<0){ p.diving=8; }
       } else if(ball.active && p.team===rt){
         // partner covers the middle / shifts opposite
