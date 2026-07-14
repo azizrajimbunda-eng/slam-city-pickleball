@@ -390,7 +390,9 @@
   // Dynamic pace: base is slow (dinks), but drives/smashes/net attacks briefly
   // speed the whole sim up, then it eases back to slow. curPace() is the live time-scale.
   let paceBoost=0; const FAST_PACE=0.92;
-  const curPace=()=>lerp(cfg().pace, FAST_PACE, clamp(paceBoost,0,1));
+  // hitStop is slow-mo (30%), not a hard freeze: a 4-6 frame full stop on a big
+  // hit read as a stutter/perf hiccup on phones rather than deliberate emphasis
+  const curPace=()=>lerp(cfg().pace, FAST_PACE, clamp(paceBoost,0,1)) * (hitStop>0?0.3:1);
 
   let running=!reducedMotion, sfxOn=true, frame=0;
   let hapticsOn=true;
@@ -911,6 +913,13 @@
         if(p.willMiss){ tx += p.missDir*0.28; }
         spdMul=1.5;   // was 1.15 — too close to normal walk speed to read as "hustling" for a live ball
         if(p.willMiss && Math.abs(ball.cx-p.cx)<0.35 && ball.vz<0){ p.diving=8; }
+        // a scripted miss must LOOK like a failed attempt: swing at the ball as it
+        // passes their depth (a visible whiff), instead of sidestepping and statuing —
+        // the dive above has narrow trigger conditions, so on flat/wide balls the
+        // miss otherwise played out as "AI watches it go by without trying"
+        if(p.willMiss && p.swing<=0 && Math.abs(ball.cy-p.cy)<0.05){
+          p.swing=1; p.swingType = ball.cz>0.6?'drive':'dink'; p.backhand=false;
+        }
       } else if(ball.active && p.team===rt){
         // partner covers the middle / shifts opposite
         tx = -ball.tcx*0.5; ty = netCy(rt);
@@ -1092,9 +1101,9 @@
   // hand battles) slot in as new cases
   function update(){
     frame++;
-    // hit-stop: freeze the sim on a big contact for a few frames, but keep juice
-    // (particles, shake, camera, flash) alive so the freeze doesn't feel dead
-    if(hitStop>0){ hitStop--; updateEffects(); return; }
+    // hit-stop: drop the sim into 30% slow-mo on a big contact for a few frames
+    // (via curPace) — juice keeps running and motion never fully halts
+    if(hitStop>0) hitStop--;
     if(humanShotTimer>0) humanShotTimer--;
     switch(phase){
       case 'serve':
@@ -1344,6 +1353,14 @@
     ctx.fillStyle=C.ball;
     ctx.beginPath(); ctx.moveTo(pr.sx-3,my-4); ctx.lineTo(pr.sx+3,my-4); ctx.lineTo(pr.sx,my); ctx.closePath(); ctx.fill();
     textC('YOU', pr.sx, my-11, 1, C.ball);
+    // "MINE" over the AI partner while they're committed to the incoming ball —
+    // tells the player to leave it instead of reading the partner's patience
+    // (or a deliberate miss) as the AI ignoring a ball that was theirs to take
+    const mate=players[1];
+    if(ball.active && ball.lastTeam===1 && responsible===mate && (frame%14<9)){
+      const mp=proj(mate.cx,mate.cy,0);
+      textC('MINE', mp.sx, Math.round(mp.gy-24*mp.sc)-11, 1, '#7bff8a');
+    }
     // standing in the kitchen: volleying from here is a fault — unless beside it (erne zone)
     const inErneZone = Math.abs(HUMAN.cx)>1.0 && HUMAN.cy>0.40;
     if(inErneZone && (frame%14<8)) textC('ERNE ZONE', pr.sx, Math.round(pr.gy+3), 1, '#7bff8a');
