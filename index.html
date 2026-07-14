@@ -683,6 +683,7 @@
 
   function launch(fromTeam, type, quality, aim){
     const rt = 1-fromTeam, c=cfg();
+    const wasHandBattle = handBattle>0;   // before this shot's own handBattle=46 below
     let tcx, tcy, T, flat=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
     if(type==='serve'){
@@ -749,7 +750,9 @@
     } else if(type==='dink'||type==='drop'||type==='lob'){ handBattle=0; hbCount=0; }
     // fx
     if(type==='smash'){ popup('SMASH!', ball.cx, ball.cy, ball.cz+0.6, C.ball, true); shake(3.0*c.shake); doFlash(0.32); sfx.smash(); intenseFlash=Math.max(intenseFlash,16);
-      if(!reducedMotion){ hitStop=Math.max(hitStop,4); camZoomTarget=Math.max(camZoomTarget,1.35); } }
+      // hit-stop is for punctuating ONE big moment — repeating it on every smash in a
+      // rapid hand battle stacks into a visible stutter instead of feeling snappy
+      if(!reducedMotion && !wasHandBattle){ hitStop=Math.max(hitStop,4); camZoomTarget=Math.max(camZoomTarget,1.35); } }
     else if(type==='atp'){ popup('ATP!!', ball.cx, ball.cy, ball.cz+0.6, '#7bff8a', true); confetti(); shake(2.5*c.shake); doFlash(0.3); sfx.smash(); crowdJump=Math.max(crowdJump,20);
       if(!reducedMotion){ hitStop=Math.max(hitStop,5); camZoomTarget=Math.max(camZoomTarget,1.4); } }
     else if(type==='drive'){ sfx.pock(); shake(1.2*c.shake); }
