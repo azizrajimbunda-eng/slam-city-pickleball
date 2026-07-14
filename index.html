@@ -934,7 +934,13 @@
       // correctly-positioned, legitimately-waiting player looked like a frozen
       // statue facing the wrong way instead of a player tracking the play
       if(ball.active && p.swing<=0) p.paddleSide = ball.cx>p.cx ? 1 : -1;
-      p.anim += Math.abs(dx)*18 + Math.abs(dy)*18 + 0.04;
+      // ready-stance idle bounce: while a point is live, a nearly-stationary player
+      // (already correctly positioned, e.g. legally waiting out the kitchen/two-bounce
+      // rule near the net) still needs a visible "alert" cue — the old flat +0.04
+      // idle rate took ~2.6s for one leg-cycle, reading as a frozen statue rather
+      // than a player tracking the play and ready to move
+      const moving = Math.abs(dx)+Math.abs(dy);
+      p.anim += moving*18 + (ball.active ? Math.max(0.04, 0.14-moving*8) : 0.04);
       if(p.swing>0) p.swing=Math.max(0,p.swing-0.12);
       if(p.diving>0) p.diving--;
       if(!reducedMotion && shotCount>=5 && p===responsible && (frame%7===0) && (Math.abs(dx)+Math.abs(dy))>0.006){
