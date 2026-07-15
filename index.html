@@ -677,28 +677,45 @@
     serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     hitStop=0; camZoom=1; camZoomTarget=1; camPanX=0;
-    startPoint();
+    startPoint(true);   // fresh game: snap into formation, there's nothing to walk from
   }
 
-  function startPoint(){
-    shotCount=0; rally=0; ball.active=false; ball.bounced=0; ball.trail.length=0;
+  // The next serve formation is fully determined by servingTeam/serverIdx/lanes — the
+  // serve target is just -serverLane*0.5, no randomness — and scorePoint() settles all
+  // three BEFORE it starts the dead phase. So this can run the instant a point dies and
+  // let the settle beat walk everyone into place.
+  // Sets TARGETS only unless `snap`. startPoint() used to assign p.cy/p.cx directly,
+  // which teleported players into formation: measured, 79% of resets jumped >3ft, median
+  // 9.0ft, max 16.8ft (a kitchen-line player warping to the baseline in one frame) — all
+  // while the dead phase's 66 walk-back frames were spent strolling toward the PREVIOUS
+  // point's formation. Same window, wrong destination. `snap` is for reset(), where
+  // there is no previous point to walk from.
+  function serveFormation(snap){
     const rt = 1-servingTeam;
     // serve target: cross-court deep into receiver's box (box comes from the server's
     // actual current lane, which swaps with their partner each time they score)
-    const sp = team(servingTeam)[serverIdx];
-    const serverLane = sp.lane;
-    const tcx = -serverLane*0.5;
-    // formation
+    const tcx = -team(servingTeam)[serverIdx].lane*0.5;
     for(const p of players){
-      if(p.team===servingTeam){ p.cy=p.ty=baselineCy(servingTeam); p.cx=p.tx=p.lane*0.45; }
+      if(p.team===servingTeam){ p.ty=baselineCy(servingTeam); p.tx=p.lane*0.45; }
       else {
         // receiver on the target side stays back to return; partner up at the kitchen
         const isReturner = (Math.sign(p.lane) === Math.sign(tcx)) || (tcx===0);
-        if(isReturner){ p.cy=p.ty=baselineCy(rt); p.cx=p.tx=Math.sign(tcx)*0.42; }
-        else { p.cy=p.ty=netCy(rt); p.cx=p.tx=p.lane*0.40; }
+        if(isReturner){ p.ty=baselineCy(rt); p.tx=Math.sign(tcx)*0.42; }
+        else { p.ty=netCy(rt); p.tx=p.lane*0.40; }
       }
-      p.swing=0; p.diving=0;
+      if(snap){ p.cx=p.tx; p.cy=p.ty; }
     }
+    return tcx;
+  }
+
+  function startPoint(snap){
+    shotCount=0; rally=0; ball.active=false; ball.bounced=0; ball.trail.length=0;
+    const rt = 1-servingTeam;
+    const sp = team(servingTeam)[serverIdx];
+    // targets were already set when the point died, so by now the walk-back has carried
+    // everyone here — recomputing is a no-op that also covers the reset()/snap path
+    const tcx = serveFormation(snap);
+    for(const p of players){ p.swing=0; p.diving=0; }
     // put ball at server
     ball.cx = sp.lane*0.45; ball.cy = baselineCy(servingTeam); ball.cz = HIT_Z;
     ball.tcx = tcx; ball.tcy = baselineCy(rt);
@@ -928,6 +945,10 @@
     }
     // settle: hold the moment, show the consequence, then move on
     phase='dead'; phaseTimer= reducedMotion?50:90;
+    // point everyone at the NEXT serve formation now that servingTeam/serverIdx/lanes are
+    // settled above, so the settle beat's walk-back carries them there instead of
+    // startPoint() teleporting them into it
+    serveFormation(false);
     const other=1-winner;
     if(scored && score[winner]>=11 && score[winner]-score[other]>=2){
       gameBanner=150; gameWinner=winner; matchOver=true; confetti(); doFlash(0.7); shake(3*cfg().shake); sfx.game(); phaseTimer=150;
@@ -975,7 +996,18 @@
   function updatePlayers(){
     const rt = ball.active ? 1-ball.lastTeam : -1;
     for(const p of players){
-      if(controlMode && p===HUMAN){ applyHumanMovement(p); continue; }
+      // The human drives themselves whenever there's anything to drive — but between
+      // points they walk back into formation like everyone else. updatePlayers() used to
+      // skip them outright in controlMode, so startPoint()'s teleport was the ONLY thing
+      // ever placing them: removing it stranded them ~15ft out of position on 93.8% of
+      // serves, and spawned their own serve up to 16.7ft away from them. Neither harness
+      // catches that — rules pass (nothing illegal happens) and the positioning harness
+      // is AI-mode — so this is measured by hand; see the flow probes.
+      if(controlMode && p===HUMAN && phase!=='dead'){ applyHumanMovement(p); continue; }
+      // walking back: zero the human's carried velocity and any half-finished swing so
+      // control is handed back clean at the serve (the target path below doesn't touch
+      // mvx/mvy or `swinging`, which only applyHumanMovement maintains)
+      if(controlMode && p===HUMAN){ p.mvx=0; p.mvy=0; p.swinging=0; }
       let tx=p.cx, ty=p.cy, spdMul=1;
       if(p===responsible && ball.active && p.team===rt){
         tx = ball.tcx; ty = netCy(rt);
