@@ -1003,8 +1003,17 @@
           p.swing=1; p.swingType = ball.cz>0.6?'drive':'dink'; p.backhand=false;
         }
       } else if(ball.active && p.team===rt){
-        // partner covers the middle / shifts opposite
-        tx = -ball.tcx*0.5; ty = netCy(rt);
+        // partner: the pair moves as a UNIT — both shift toward the ball, staying ~8.5ft
+        // apart, with the off-ball player covering the MIDDLE (where most balls go).
+        // was tx = -ball.tcx*0.5, which anti-tracked the ball at a measured r = -0.959:
+        // it guarded the low-percentage extreme angle over the high-percentage middle,
+        // and on a ball down the centre it sent BOTH defenders to cx~0 (spread p10 was
+        // 1.2ft — they stacked on the same spot, which is what "ang lapit nila sa isa't
+        // isa" was). Slot is picked from the partner's OWN cx, not sign(tcx), so a ball
+        // crossing the centre line can't teleport them 8ft across the court.
+        const unitC = ball.tcx*0.45;
+        tx = clamp(p.cx < unitC ? unitC-0.42 : unitC+0.42, -0.95, 0.95);
+        ty = netCy(rt);
       } else if(ball.active && p.team!==rt){
         // hitting team charges the net after they strike. serving team waits out the
         // two-bounce rule (startShot 3 = behind the third-shot drop); returning team
