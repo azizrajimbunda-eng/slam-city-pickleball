@@ -336,7 +336,12 @@
   // court half-widths, cy [0..1] stretches to WLEN depth units, cz to WHGT.
   // The camera pans laterally with the ball (camPanX, eased in updateEffects)
   // while the wall/crowd stay screen-space — the resulting parallax is the depth cue.
-  const CAM = { h:1.35, back:1.15, pitch:0.42, f:170, cy:100 };
+  // back/f tuned via a headless sweep over every legal (cx, cy, pan) combo — the
+  // initial 1.15/170 pairing put extreme sideline positions (erne/ATP defense,
+  // cx=1.15) off-canvas at the near baseline (sx up to 311 on a 256px canvas),
+  // worse once the follow-pan was added. This pairing is the strongest depth
+  // contrast (near/far scale ratio) with zero overflow across the full range.
+  const CAM = { h:1.35, back:1.4, pitch:0.42, f:130, cy:100 };
   const WLEN = 3.2, WHGT = 0.55;
   const CAM_CP = Math.cos(CAM.pitch), CAM_SP = Math.sin(CAM.pitch);
   let camPanX = 0;
