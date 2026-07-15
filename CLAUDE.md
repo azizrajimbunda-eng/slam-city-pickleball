@@ -10,7 +10,7 @@ Broadcast-view doubles pickleball, 8-bit canvas style, authentic rules. Single-f
 
 ## Architecture (deliberate decisions — don't relitigate without cause)
 - **Single-file `index.html`** (~1300 lines): the artifact host requires a self-contained file, and no build step keeps deploys trivial. Split only if scope doubles again.
-- **The sim is true 3D** (`cx, cy, cz` + gravity `GZ`, net height `NET_H`); only the renderer is 2D (broadcast projection via `proj()`). A 3D renderer could be swapped in on a branch without touching game logic — considered and deferred.
+- **The sim is true 3D** (`cx, cy, cz` + gravity `GZ`, net height `NET_H`), and since 2026-07-15 the renderer is a **true perspective camera** (`proj()` = pinhole camera `CAM` behind the near baseline + `camPanX` ball-follow pan; wall/crowd stay screen-space for parallax). The whole game draws through `proj()`'s `{sx, sy, gy, sc}` contract — camera changes never touch game logic. Camera constants (`CAM.back`/`CAM.f`) were tuned via headless sweep over every legal position: re-run that sweep (zero off-canvas overflow) after any camera change. `WHGT 0.42` keeps ball arcs at the old broadcast proportions — dinks read flat, raising it makes every arc taller.
 - **One tuned pace** (`TUNE`, pace 0.45): patient dink base; `paceBoost` surges toward `FAST_PACE` on drives/smashes/hand battles, then decays. No difficulty modes (removed by user request).
 - **Virtual input layer**: keyboard `keys{}` + joystick `touchVec` merge in `applyHumanMovement()`; all swings go through `doSwing(type)`. Gamepad API would be a ~30-line add here.
 - **Phase state machine** in `update()`: `serve`, `serveMeter` (human serve timing), `play`, `dead` (settle beat + result banner).
@@ -35,7 +35,10 @@ Broadcast-view doubles pickleball, 8-bit canvas style, authentic rules. Single-f
 - Resource efficiency matters: work inline (whole file fits in context); no subagent fan-outs or workflows for routine changes. Sonnet is fine for CSS/layout stages; verification fan-outs at Haiku/low if ever needed; `/code-review` low–medium after big milestones. A 48-agent ultracode review was tried once — overkill; findings were adjudicated inline instead.
 - Commit every milestone with a detailed message; the git log is the project history.
 
-## Current state / open threads (2026-07-13)
-- Mobile app mode just shipped (75px buttons, gear menu, auto-fullscreen). **Awaiting phone feedback**: button size feel, auto-fullscreen jump, settle-pause length (~1.5s), announcer pacing.
-- Deferred ideas: 3D renderer experiment branch; Gamepad API; camera juice (zoom/pan on smashes); tuning `HMAX`/`STICK_R` if movement feels off.
+## Current state / open threads (2026-07-15)
+- **3D perspective camera merged to main** (branch `3d-renderer`, now merged): pinhole camera, ball-follow pan, wind-up swing phase, arc heights at old proportions. User verdict on phone: pan/cinematic feel good.
+- AI-passivity fix batch shipped and validated on phone: 2D responsible assignment, tighter contact reach (0.12), missCap 0.22, chase spdMul 1.5, paddle tracking while waiting, ready-stance idle bounce, MINE callout over the AI partner, whiff swings on scripted misses, hit-stop → 30% slow-mo. Key insight: most "AI is passive" reports were *legibility* problems (legal waiting looked like freezing), not logic bugs.
+- Next up (user-agreed order): POP UP! callout + floaty trail on mishits (mechanic exists, isn't legible); second colleague playtest round; tiers/progression scoping (user open to it now that tuning holds — the old "no difficulty modes" removal was because mechanics weren't tuned yet); multiplayer (online + co-op — connection architecture question parked: P2P room codes vs relay server).
+- The `3d-renderer` branch can be deleted after a few days of stable main; its test artifact (🎥 https://claude.ai/code/artifact/ba0d8de2-f239-484b-bb9b-ee13524bd9e0) is now redundant with the main mirror.
+- Debug technique that keeps paying off: extract the game script headless (pattern in `tests/rules-harness.js`), instrument, drive frames, measure — the browser pane can't observe live gameplay (`document.hidden` throttling). Also: ffmpeg frame-extraction of user screen recordings (transpose=2 for iPhone portrait) traces feel-reports to exact frames.
 - Known env quirks: `gh` CLI authed as `azizrajimbunda-eng`; session shell resets cwd between Bash calls (use absolute paths / `cd` per command).
