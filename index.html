@@ -185,22 +185,24 @@
      (same pattern landscape already uses below) instead of reserving space below it. */
   @media (orientation:portrait){
     body.mobile canvas{ width:112vw; height:auto; flex-shrink:0; }
-    /* fits 100vw: 2vw + 40vw zone + 52vw diamond (2.6×20vw) + 2vw ≈ 96vw */
-    body.mobile .padDeck{ --tb:min(20vw,84px); --sz:min(40vw,200px); --sb:min(25vw,120px); --sn:min(12vw,56px); }
+    /* fits 100vw: 1.5vw + 40vw zone + 54.6vw diamond (2.6×21vw) + 1.5vw ≈ 97.6vw.
+       tb bumped 20->21vw + cap 84->88px after "too small/unresponsive" phone
+       feedback; margin trimmed 2->1.5vw per side to absorb it safely. */
+    body.mobile .padDeck{ --tb:min(21vw,88px); --sz:min(40vw,200px); --sb:min(25vw,120px); --sn:min(13vw,60px); }
     /* keep the gear clear of the canvas HUD strip (top ~16% of the now-1.12×-bigger canvas) */
     body.mobile #btnGear{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 12px); }
     body.mobile .deck{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 58px); }
     body.mobile .padDeck.on{ position:absolute; left:0; right:0;
       bottom:calc(env(safe-area-inset-bottom,0px) + 10px); z-index:5;
-      margin:0; padding:0 2vw; box-sizing:border-box; background:none; pointer-events:none; }
+      margin:0; padding:0 1.5vw; box-sizing:border-box; background:none; pointer-events:none; }
   }
   /* landscape: full-bleed canvas, controls overlay the bottom corners.
      bottom offset clears iOS's home-indicator swipe zone — without it, touches
      near the edge are silently eaten by the OS instead of the game */
   @media (orientation:landscape){
     body.mobile canvas{ height:100dvh; width:auto; max-width:100vw; }
-    body.mobile .padDeck{ --tb:clamp(56px,16vh,72px); --sz:clamp(120px,40vh,170px);
-      --sb:clamp(88px,26vh,110px); --sn:clamp(44px,13vh,54px); }
+    body.mobile .padDeck{ --tb:clamp(60px,17vh,76px); --sz:clamp(120px,40vh,170px);
+      --sb:clamp(88px,26vh,110px); --sn:clamp(48px,14vh,58px); }
     body.mobile .padDeck.on{ position:absolute; left:10px; right:10px;
       bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:5; margin:0;
       background:none; pointer-events:none; }
@@ -208,6 +210,12 @@
   /* both orientations float the deck as a transparent hit-test-only container —
      re-enable pointer-events and a bit of translucency on just the interactive pieces */
   body.mobile .stickZone, body.mobile .padBtns{ pointer-events:auto; opacity:.9; }
+  /* with exactly 2 flex children, justify-content:space-between already pushes them
+     to opposite edges — the base rule's gap:16px was redundant AND, on a width-
+     constrained mobile viewport, forced real overflow instead of just being unused
+     slack (caught via getBoundingClientRect: tbDrive's right edge sat 7px past a
+     375px-wide viewport). Desktop has room to spare so it keeps the gap. */
+  body.mobile .padDeck{ gap:0; }
 
   /* ---- first-run mobile onboarding: desktop has the caption paragraph explaining
      controls, but that's display:none on mobile — without this a first-time phone
@@ -1601,15 +1609,22 @@
   document.querySelector('.deck').addEventListener('click',()=>document.body.classList.remove('menuOpen'));
   // floating joystick: touch ANYWHERE in the zone and the stick appears right under
   // your thumb (origin = touch-down point), instead of requiring a precise touch-down
-  // spot on a small fixed circle. Drag radius is a fixed logical distance, independent
-  // of the zone's on-screen size.
-  let stickId=null, stickOX=0, stickOY=0;
-  const STICK_R=40, STICK_DEAD=0.16;
+  // spot on a small fixed circle.
+  let stickId=null, stickOX=0, stickOY=0, stickR=40;
+  const STICK_DEAD=0.16;
   function stickDown(e){
     e.preventDefault(); stickId=e.pointerId; stickZone.setPointerCapture(stickId);
     if(!controlMode) setControl(true);
     autoFullscreen();
-    const r=stickZone.getBoundingClientRect(), pad=30;
+    const r=stickZone.getBoundingClientRect();
+    // drag-to-max-speed radius scales with the zone's actual rendered size instead
+    // of a fixed 40px — --sz ranges ~132px (desktop) to 200px (portrait phone), so a
+    // fixed radius left most of a big zone "dead" past the responsive range: the
+    // nub visually sat well inside the base graphic while already pinned at max
+    // speed, and a normal thumb wobble crossed the whole responsive range in a
+    // couple pixels. Read as both "too small" and "doesn't respond right."
+    stickR = Math.min(r.width, r.height) * 0.3;
+    const pad = Math.max(30, stickR*0.8);
     stickOX=clamp(e.clientX-r.left, pad, r.width-pad);
     stickOY=clamp(e.clientY-r.top, pad, r.height-pad);
     stickBase.style.left=stickOX+'px'; stickBase.style.top=stickOY+'px';
@@ -1619,11 +1634,11 @@
   }
   function setStick(e){
     const r=stickZone.getBoundingClientRect();
-    let vx=(e.clientX-r.left-stickOX)/STICK_R, vy=(e.clientY-r.top-stickOY)/STICK_R;
+    let vx=(e.clientX-r.left-stickOX)/stickR, vy=(e.clientY-r.top-stickOY)/stickR;
     const m=Math.hypot(vx,vy); if(m>1){ vx/=m; vy/=m; }
     touchVec.x = Math.abs(vx)<STICK_DEAD?0:vx;
     touchVec.y = Math.abs(vy)<STICK_DEAD?0:-vy;   // stick up = toward the net (+dy on near side)
-    stickNub.style.left=(stickOX+vx*STICK_R)+'px'; stickNub.style.top=(stickOY+vy*STICK_R)+'px';
+    stickNub.style.left=(stickOX+vx*stickR)+'px'; stickNub.style.top=(stickOY+vy*stickR)+'px';
   }
   function clearStick(){ stickId=null; touchVec.x=0; touchVec.y=0;
     stickBase.classList.remove('show'); stickNub.classList.remove('show'); }
