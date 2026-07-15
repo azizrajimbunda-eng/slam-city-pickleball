@@ -474,7 +474,14 @@
   const particles=[], popups=[];
 
   function baselineCy(t){ return t===0?-0.06:1.06; }  // behind the baseline line (drawn at cy 0/1) — pickleball has no separate service line
-  function netCy(t){ return t===0?0.30:0.70; }
+  // "at the net" = toes just behind the kitchen line, the whole point of doubles.
+  // was a flat 0.30/0.70 = 1.8ft back, which made this a hard attractor: the AI
+  // reached the line reactively for short balls then snapped back here and parked
+  // (measured: median AND p90 both exactly 1.8ft, line held only ~40% of frames).
+  // Read as "the AI won't commit to the kitchen". Anchored to KN/KF so it can't
+  // drift out of sync with the line again; the 0.02 margin keeps them legal to
+  // volley (inKitchen() is a strict cy>KN, and a player inside must let it bounce).
+  function netCy(t){ return t===0? KN-0.02 : KF+0.02; }
   // right-handed players: forehand side is absolute +x for the near team, -x for the far
   // team (they face opposite baselines, so "their right" mirrors across teams)
   function forehandSide(t){ return t===0?1:-1; }
