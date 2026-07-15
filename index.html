@@ -713,7 +713,7 @@
   function launch(fromTeam, type, quality, aim){
     const rt = 1-fromTeam, c=cfg();
     const wasHandBattle = handBattle>0;   // before this shot's own handBattle=46 below
-    let tcx, tcy, T, flat=false;
+    let tcx, tcy, T, flat=false, sitter=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
     if(type==='serve'){
       tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56;
@@ -758,6 +758,7 @@
       tcx = clamp(tcx + (Math.random()-0.5)*0.7, -0.95, 0.95);
       tcy = rt===1 ? 0.60 : 0.40;      // short, sits up near the net
       T = Math.max(T, 46); flat=false; // floaty and slow
+      sitter = true;                   // callout + floaty trail: make the mistake legible
     }
     // T is in sim time-units; the global `pace` time-scale sets actual playback speed.
     // kinematics from current ball to target, landing (cz~0) after T time-units
@@ -767,7 +768,12 @@
     if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
     ball.vz = vz;
     ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
-    ball.atp = (type==='atp'); ball.shotType=type;
+    ball.atp = (type==='atp'); ball.shotType=type; ball.sitter=sitter;
+    // the pop-up was always simulated (bad contact -> short floaty sitter -> overhead
+    // punish) but never announced, so the cause-and-effect loop didn't read on screen.
+    // Callout goes at the LANDING spot — where the punish is about to happen — not at
+    // the hitter, where it would stack on the PERFECT/GOOD/BAD contact popup.
+    if(sitter){ popup('POP UP!', tcx, tcy, 0.3, fromTeam===0?C.p1:C.p2, false); sfx.crowdMurmur(); }
     assignResponsible(rt);
     // dynamic pace: fast shots wake the sim up; dinks let it settle back to slow
     const boost = type==='smash'?1.0 : type==='drive'?0.66 : type==='return'?0.5 : type==='serve'?0.34 : type==='drop'?0.26 : type==='lob'?0.2 : 0.06;
@@ -1303,10 +1309,11 @@
     // shadow scales with height (higher = smaller, fainter)
     const hMul=clamp(1-ball.cz*0.35,0.4,1);
     drawShadow(ball.cx,ball.cy,0.7*hMul);
-    // per-shot trail: smashes burn, drives streak, dinks stay clean
+    // per-shot trail: smashes burn, drives streak, dinks stay clean — and a popped-up
+    // sitter drifts with a bright pale wobble so the free ball is spottable at a glance
     const st=ball.shotType;
-    const trailA = st==='smash'||st==='atp' ? 0.55 : st==='drive' ? 0.4 : st==='dink'||st==='drop' ? 0.12 : 0.3;
-    const trailC = st==='smash'||st==='atp' ? '255,138,92' : st==='drive' ? '255,255,255' : '246,233,74';
+    const trailA = ball.sitter ? 0.5 : st==='smash'||st==='atp' ? 0.55 : st==='drive' ? 0.4 : st==='dink'||st==='drop' ? 0.12 : 0.3;
+    const trailC = ball.sitter ? '255,220,150' : st==='smash'||st==='atp' ? '255,138,92' : st==='drive' ? '255,255,255' : '246,233,74';
     for(let i=0;i<ball.trail.length;i++){ const tp=ball.trail[i], a=i/ball.trail.length;
       ctx.fillStyle=`rgba(${trailC},${a*trailA})`; ctx.fillRect(Math.round(tp.x)-1,Math.round(tp.y)-1,2,2); }
     // speed lines
