@@ -342,7 +342,11 @@
   // worse once the follow-pan was added. This pairing is the strongest depth
   // contrast (near/far scale ratio) with zero overflow across the full range.
   const CAM = { h:1.35, back:1.4, pitch:0.42, f:130, cy:100 };
-  const WLEN = 3.2, WHGT = 0.55;
+  // WHGT 0.55 drew ~20px per height unit at midcourt vs ~13px in the old
+  // broadcast renderer — every arc read ~50% taller, most jarring on dinks
+  // (phone feedback: "even dinks visually pop up"). 0.42 restores the old
+  // height-to-court proportion; ball/net/player heights all scale together.
+  const WLEN = 3.2, WHGT = 0.42;
   const CAM_CP = Math.cos(CAM.pitch), CAM_SP = Math.sin(CAM.pitch);
   let camPanX = 0;
   function proj(cx, cy, cz){
