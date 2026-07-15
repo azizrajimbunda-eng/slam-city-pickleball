@@ -482,6 +482,13 @@
   // drift out of sync with the line again; the 0.02 margin keeps them legal to
   // volley (inKitchen() is a strict cy>KN, and a player inside must let it bounce).
   function netCy(t){ return t===0? KN-0.02 : KF+0.02; }
+  // A ball landing inside the kitchen is slow and floaty (every dink lands here —
+  // launch() aims them at 0.44/0.56). A scripted miss on one must express as a
+  // MISHIT, never as the lateral sidestep the miss system uses elsewhere: measured,
+  // the AI walked 3.5ft away from a dink sitting at its exact depth (closest-dy
+  // 0.000) and swung at air. Reads as "nasa harap na nga, 'di pa rin masuntok".
+  // Nobody sidesteps a dink in real pickleball — they pop it into the sky.
+  function kitchenBall(){ return ball.active && Math.abs(ball.tcy-0.5) < 0.5-KN; }
   // right-handed players: forehand side is absolute +x for the near team, -x for the far
   // team (they face opposite baselines, so "their right" mirrors across teams)
   function forehandSide(t){ return t===0?1:-1; }
@@ -728,7 +735,7 @@
   function launch(fromTeam, type, quality, aim){
     const rt = 1-fromTeam, c=cfg();
     const wasHandBattle = handBattle>0;   // before this shot's own handBattle=46 below
-    let tcx, tcy, T, flat=false, sitter=false;
+    let tcx, tcy, T, flat=false, sitter=false, netDump=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
     if(type==='serve'){
       tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56;
@@ -769,18 +776,42 @@
     if(type==='serve'){ /* serve quality handled above */ }
     else if(quality==='good'){ tcx = clamp(tcx + (Math.random()-0.5)*0.22, -0.95, 0.95); }
     else if(quality==='bad'){
-      // a mishit — pops up SHORT into the opponent's attack zone (a juicy sitter)
+      // a mishit — floats up and lands MID-COURT, where it can be taken out of the air
+      // above net height and put away.
+      // This used to land at kitchenIn (0.40/0.60): SHORT, inside the receiver's OWN
+      // kitchen. The ball touched down before it ever reached them, so they waited out
+      // the bounce at the line and scraped it off the deck — measured contact height
+      // cz=0.049 (p50) and a 19.7% punish rate, i.e. they just dinked it back. A pop-up
+      // that lands at dink depth IS a dink, so POP UP! was announcing a punish that
+      // could never arrive. Landing it past the kitchen means it crosses the receiver's
+      // depth while still airborne and high, which is what makes it attackable.
       tcx = clamp(tcx + (Math.random()-0.5)*0.7, -0.95, 0.95);
-      tcy = rt===1 ? 0.60 : 0.40;      // short, sits up near the net
+      tcy = rt===1 ? 0.74 : 0.26;
       T = Math.max(T, 46); flat=false; // floaty and slow
       sitter = true;                   // callout + floaty trail: make the mistake legible
+    }
+    else if(quality==='net'){
+      // dumped into the tape — the other half of how kitchen errors actually happen,
+      // and the terminal one: the point ends here rather than feeding the rally.
+      // Aimed like a dink; the lift is solved for below (see netDump) so it cannot
+      // clear the net regardless of where contact happened.
+      tcx = clamp(ball.cx + (Math.random()-0.5)*0.3, -0.85, 0.85);
+      tcy = kitchenNear; T = 52; flat = true; netDump = true;
     }
     // T is in sim time-units; the global `pace` time-scale sets actual playback speed.
     // kinematics from current ball to target, landing (cz~0) after T time-units
     ball.vx = (tcx - ball.cx)/T;
     ball.vy = (tcy - ball.cy)/T;
     let vz = 0.5*GZ*T - (ball.cz)/T;
-    if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
+    if(netDump){
+      // solve the lift that puts the ball UNDER the tape exactly when it arrives there,
+      // rather than guessing a T small enough to keep the arc low: contact height and
+      // depth vary every rally (a dink is struck off the deck at cz~0.05, a volley much
+      // higher), so any hardcoded arc clears the net on some contacts and not others.
+      const tNet = (0.5 - ball.cy)/ball.vy;   // sim-time until it reaches cy=0.5
+      vz = tNet > 1 ? (NET_H*0.5 - ball.cz + 0.5*GZ*tNet*tNet)/tNet : 0;
+    }
+    else if(!flat){ const apex=ball.cz + (vz*vz)/(2*GZ); if(apex < NET_H+0.25){ vz = Math.sqrt(2*GZ*(NET_H+0.30 - ball.cz)); } }
     ball.vz = vz;
     ball.lastTeam=fromTeam; ball.tcx=tcx; ball.tcy=tcy; ball.active=true; ball.bounced=0;
     ball.atp = (type==='atp'); ball.shotType=type; ball.sitter=sitter;
@@ -955,14 +986,20 @@
         // short ball (dink/drop): hold the kitchen line until it bounces, then step in
         else if(Math.abs(ball.tcy-0.5) < 0.22) ty = ball.bounced>0 ? ball.tcy + (rt===0? -0.02: 0.02) : (rt===0? KN-0.02 : KF+0.02);
         else ty = lerp(netCy(rt), ball.tcy, 0.5);
-        if(p.willMiss){ tx += p.missDir*0.28; }
+        // Scripted misses have two expressions, and the ball's speed picks which one
+        // is believable. On a drive/lob the sidestep+whiff below reads as getting
+        // wrong-footed. On a dink it read as the AI moonwalking away from a ball
+        // parked in front of it, so kitchen balls skip all three tells here and miss
+        // via a mishit instead — see the willMiss branch at the contact check.
+        const softMiss = p.willMiss && kitchenBall();
+        if(p.willMiss && !softMiss){ tx += p.missDir*0.28; }
         spdMul=1.5;   // was 1.15 — too close to normal walk speed to read as "hustling" for a live ball
-        if(p.willMiss && Math.abs(ball.cx-p.cx)<0.35 && ball.vz<0){ p.diving=8; }
+        if(p.willMiss && !softMiss && Math.abs(ball.cx-p.cx)<0.35 && ball.vz<0){ p.diving=8; }
         // a scripted miss must LOOK like a failed attempt: swing at the ball as it
         // passes their depth (a visible whiff), instead of sidestepping and statuing —
         // the dive above has narrow trigger conditions, so on flat/wide balls the
         // miss otherwise played out as "AI watches it go by without trying"
-        if(p.willMiss && p.swing<=0 && Math.abs(ball.cy-p.cy)<0.05){
+        if(p.willMiss && !softMiss && p.swing<=0 && Math.abs(ball.cy-p.cy)<0.05){
           p.swing=1; p.swingType = ball.cz>0.6?'drive':'dink'; p.backhand=false;
         }
       } else if(ball.active && p.team===rt){
@@ -1088,7 +1125,20 @@
       if(!mustBounce){
         // backhand contact: harder to control, so it occasionally pops up short
         const backhand = (ball.cx>responsible.cx?1:-1)!==forehandSide(responsible.team);
-        const q = backhand && Math.random()<0.30 ? 'bad' : undefined;
+        // a scripted miss on a kitchen ball is served as a MISHIT, not a whiff: the AI
+        // reaches the dink and pops it up into the opponent's attack zone. Same miss
+        // RATE (missChance is untouched) — only the expression changes, and it reuses
+        // the sitter machinery quality:'bad' already drives (POP UP! + floaty trail +
+        // the overhead punish). A popped dink is what a real kitchen error looks like;
+        // a 3.5ft sidestep away from a floating ball is not. Softer than a whiff (the
+        // point is now winnable off the punish) — that beat is the point.
+        // a kitchen error happens two ways in real pickleball, so roll between them:
+        // dumped into the tape (the common one, and terminal) or popped up for the
+        // overhead. Rolling both beats always picking one — and 'bad' only costs the
+        // point if the punish actually lands, which is why the sitter had to be fixed
+        // to arrive high before this branch was worth having.
+        const q = (responsible.willMiss && kitchenBall()) ? (Math.random()<0.55 ? 'net' : 'bad')
+                : backhand && Math.random()<0.30 ? 'bad' : undefined;
         doReturn(rt, responsible, undefined, q); return true;
       }
     }
