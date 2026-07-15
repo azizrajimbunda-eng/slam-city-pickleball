@@ -969,10 +969,18 @@
         // partner covers the middle / shifts opposite
         tx = -ball.tcx*0.5; ty = netCy(rt);
       } else if(ball.active && p.team!==rt){
-        // hitting team advances toward the net after they strike
+        // hitting team charges the net after they strike. serving team waits out the
+        // two-bounce rule (startShot 3 = behind the third-shot drop); returning team
+        // goes behind their return (shot 2) and is at the line before their next ball.
+        // adv used to be clamp((shotCount-startShot+1)/2,0,1), a 3-step staircase whose
+        // middle step (0.5) parked them at ~9ft — dead centre of no-man's land, the worst
+        // spot on a pickleball court, held for a full shot cycle. Measured 26.2% of live
+        // frames sitting at exactly 9ft while neighbouring depths saw ~0.2% each: a hard
+        // park, not a transit (same failure as the old netCy attractor). Real players run
+        // THROUGH the transition zone. Now it's binary — the movement ramp does the
+        // travelling, so they visibly hustle instead of stopping in the worst place.
         const startShot = (p.team===servingTeam)? 3 : 2;
-        const adv = clamp((shotCount - startShot + 1)/2, 0, 1);
-        ty = lerp(baselineCy(p.team), netCy(p.team), adv);
+        ty = shotCount >= startShot ? netCy(p.team) : baselineCy(p.team);
         tx = p.lane*0.42;
       } else {
         ty=p.ty; tx=p.tx;
