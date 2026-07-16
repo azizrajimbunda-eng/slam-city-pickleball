@@ -238,6 +238,16 @@
      settings row you poke occasionally, not for the one button the whole game hangs on */
   .splash-card button{ width:100%; min-height:46px; font-size:13px; }
   .splash-ladder{ margin-top:16px; font-size:9.5px; letter-spacing:.08em; color:var(--muted); }
+  /* career status line (name · stage · record · rating) shown when resuming a run */
+  .splash-status{ font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ball); margin-bottom:12px; min-height:13px; }
+  .splash-secondary{ margin-top:8px; opacity:.72; font-size:11px; }
+  /* jersey name entry — a real <input> so the native keyboard handles mobile */
+  .name-input{ width:100%; box-sizing:border-box; margin:2px 0 14px; padding:12px;
+    text-align:center; font-family:var(--sign); font-size:22px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--ball); background:rgba(0,0,0,.35);
+    border:2px solid var(--bezel-hi); border-radius:10px; outline:none; }
+  .name-input:focus{ border-color:var(--ball); }
   /* landscape phones are short: shrink the title rather than let the card clip */
   @media (max-height:430px){
     .splash-title{ font-size:26px; }
@@ -265,7 +275,7 @@
     background:rgba(255,255,255,.04); }
   .onboard .row p{ margin:0; font-size:11px; line-height:1.5; color:var(--ink); }
   .onboard .row b{ color:var(--ball); }
-  .onboard button{ margin-top:6px; width:100%; }
+  .onboard button{ margin-top:6px; width:100%; min-height:46px; }  /* 44px tap floor */
 </style>
 
 <div class="stage">
@@ -326,8 +336,20 @@
     <div class="splash-kicker">◆ Rec Centre to World Final ◆</div>
     <h1 class="splash-title">Slam City</h1>
     <div class="splash-sub">8-Bit Pickleball</div>
-    <button class="pix" id="btnStart" data-accent="p1">▶ Play</button>
+    <div class="splash-status" id="splashStatus"></div>
+    <button class="pix" id="btnStart" data-accent="p1">▶ New Career</button>
+    <button class="pix splash-secondary" id="btnNewCareer" data-accent="p2" style="display:none">＋ New Career</button>
     <div class="splash-ladder">Local → Regional → National → Global</div>
+  </div>
+</div>
+
+<div class="onboard" id="nameEntry">
+  <div class="onboard-card">
+    <h2>◆ Your Name ◆</h2>
+    <p class="sub">The name on your jersey — climb from the rec centre to world champion</p>
+    <input class="name-input" id="nameInput" maxlength="8" autocomplete="off"
+           autocapitalize="characters" spellcheck="false" placeholder="YOU" aria-label="Player name">
+    <button class="pix" id="btnNameOK" data-accent="ball">▶ Start Career</button>
   </div>
 </div>
 
@@ -1862,10 +1884,10 @@
   // ---- front door ----
   // A run always begins at the Round of 16 from 0-0. Take Control alone never did this:
   // it handed you the demo's match in progress, at the demo's score.
-  function startRun(fresh){
-    // continue a saved career, or start a new one. A finished (champion) career always
-    // starts fresh — you've won it, the next Play is a new run.
-    if(fresh || !career || career.done) career = newCareer(career? career.name : undefined);
+  function startRun(){
+    // career is guaranteed to exist by the time we get here (name entry creates it,
+    // continue uses the saved one); the fallback just keeps this crash-proof.
+    if(!career || career.done) career = newCareer(career? career.name : undefined);
     tourRound = career.tier;
     saveCareer();
     reset();
@@ -1873,13 +1895,54 @@
     autoFullscreen();
   }
   const splash=document.getElementById('splash');
-  document.getElementById('btnStart').addEventListener('click', ()=>{
-    ensureAudio();
-    splash.classList.remove('show');
-    // first-run phone players get the how-to-play card first, then start; everyone else
-    // goes straight in. Chained rather than stacked — two fixed overlays at once is a mess.
+  const nameEntry=document.getElementById('nameEntry'), nameInput=document.getElementById('nameInput');
+  const btnStart=document.getElementById('btnStart'), btnNewCareer=document.getElementById('btnNewCareer');
+
+  // the splash adapts to whether there's a career to resume
+  function refreshSplash(){
+    const status=document.getElementById('splashStatus');
+    if(career && !career.done){
+      btnStart.textContent='▶ Continue';
+      status.textContent = career.name+' · '+TIERS[career.tier].stage+' · '+career.w+'-'+career.l+' · '+career.rating.toFixed(2);
+      status.style.display=''; btnNewCareer.style.display='';
+    } else if(career && career.done){
+      btnStart.textContent='▶ New Career';
+      status.textContent = career.name+' · WORLD CHAMPION · '+career.rating.toFixed(2);
+      status.style.display=''; btnNewCareer.style.display='none';
+    } else {
+      btnStart.textContent='▶ New Career';
+      status.style.display='none'; btnNewCareer.style.display='none';
+    }
+  }
+
+  // A→Z, digits and spaces only, capped at 8, uppercased; empty falls back to YOU
+  const sanitizeName=s=>((s||'').toUpperCase().replace(/[^A-Z0-9 ]/g,'').trim().slice(0,8))||'YOU';
+
+  function showNameEntry(){
+    nameInput.value = (career && career.name && career.name!=='YOU') ? career.name : '';
+    nameEntry.classList.add('show');
+    try{ nameInput.focus(); }catch(e){}
+  }
+
+  // shared tail: first-run phones see the how-to-play card once, then play; everyone else
+  // goes straight in. Chained, never stacked — two fixed overlays at once is a mess.
+  function proceedToGame(){
     if(pendingOnboard){ pendingOnboard=false; document.getElementById('onboard').classList.add('show'); return; }
     startRun();
+  }
+
+  btnStart.addEventListener('click', ()=>{
+    ensureAudio();
+    splash.classList.remove('show');
+    if(career && !career.done) proceedToGame();   // resume the saved run
+    else showNameEntry();                          // no career, or a finished one → name a new pro
+  });
+  // abandon the current run and start a fresh career
+  btnNewCareer.addEventListener('click', ()=>{ ensureAudio(); splash.classList.remove('show'); showNameEntry(); });
+  document.getElementById('btnNameOK').addEventListener('click', ()=>{
+    career = newCareer(sanitizeName(nameInput.value)); saveCareer();
+    nameEntry.classList.remove('show');
+    proceedToGame();
   });
 
   const btnGear=document.getElementById('btnGear');
@@ -1976,6 +2039,9 @@
   }
 
   career = loadCareer();   // resume a saved career if there is one; null = attract/new
+  if(career) tourRound = career.tier;   // the demo behind the splash plays at your level,
+                                        // and the chrome matches the Continue status line
+  refreshSplash();         // reflect it on the front door (Continue vs New Career)
   syncPlay(); reset(); loop();
 
   // PWA: install-to-home-screen support; silently skipped where unsupported (e.g. artifact host)
