@@ -695,6 +695,11 @@
   // is also the RESET button and the boot path, and gameWinner is still set while the
   // win banner is up — so hitting RESET there would silently skip you a round.
   function tourAdvance(){
+    // the attract demo does NOT get to play your ladder. This path runs on every
+    // match-over, including AI-vs-AI with nobody watching: measured, the demo climbed
+    // R16 -> QF in ~5min of idle and cycled the whole ladder if left alone, so you'd
+    // press Take Control already in a round you never earned.
+    if(!controlMode) return;
     if(gameWinner!==0) return;                                  // lost: replay this round
     tourRound = tourRound >= TIERS.length-1 ? 0 : tourRound+1;
   }
