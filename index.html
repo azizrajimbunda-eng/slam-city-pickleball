@@ -217,9 +217,39 @@
      375px-wide viewport). Desktop has room to spare so it keeps the gap. */
   body.mobile .padDeck{ gap:0; }
 
+  /* ---- front door. The attract demo keeps playing BEHIND this — it's the best
+     three-second pitch the game has, so the scrim stays light enough to watch it.
+     Take Control alone was never a real entry: it dropped you into whatever match the
+     demo was already midway through, at its score. Play starts a clean run at the
+     Round of 16. Sits above .onboard (z 30) because it sequences in front of it. ---- */
+  .splash{ display:none; position:fixed; inset:0; z-index:40; background:rgba(5,4,15,.66);
+    align-items:center; justify-content:center; padding:20px; box-sizing:border-box;
+    touch-action:none; }
+  .splash.show{ display:flex; }
+  .splash-card{ text-align:center; max-width:320px; width:100%; }
+  .splash-kicker{ font-family:var(--sign); font-size:10px; letter-spacing:.34em;
+    text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+  .splash-title{ font-family:var(--sign); font-weight:700; font-size:40px; margin:0;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--ball);
+    text-shadow:0 0 18px rgba(246,233,74,.45), 0 4px 0 rgba(0,0,0,.5); }
+  .splash-sub{ font-size:11px; letter-spacing:.3em; text-transform:uppercase;
+    color:var(--p2); margin:6px 0 22px; }
+  /* the deck's .pix default lands at 33px, under the 44px tap-target floor — fine for a
+     settings row you poke occasionally, not for the one button the whole game hangs on */
+  .splash-card button{ width:100%; min-height:46px; font-size:13px; }
+  .splash-ladder{ margin-top:16px; font-size:9.5px; letter-spacing:.08em; color:var(--muted); }
+  /* landscape phones are short: shrink the title rather than let the card clip */
+  @media (max-height:430px){
+    .splash-title{ font-size:26px; }
+    .splash-sub{ margin:4px 0 12px; }
+    .splash-ladder{ margin-top:9px; }
+  }
+
   /* ---- first-run mobile onboarding: desktop has the caption paragraph explaining
      controls, but that's display:none on mobile — without this a first-time phone
-     player gets zero instructions. Shown once, gated by localStorage. ---- */
+     player gets zero instructions. Shown once, gated by localStorage.
+     Sequenced BEHIND the splash (it used to fire on load, which stacked two
+     overlays on top of each other). ---- */
   .onboard{ display:none; position:fixed; inset:0; z-index:30; background:rgba(5,4,15,.90);
     align-items:center; justify-content:center; padding:20px; box-sizing:border-box;
     touch-action:none; }
@@ -289,6 +319,16 @@
     shot; sloppy timing pops up a <b>sitter</b> the CPU will pounce on. Your AI partner covers the rest.
     <span class="foot">Slow by default (real pickleball) — it bursts fast on drives, smashes and net battles. Click the screen first so it hears your keys.</span>
   </p>
+</div>
+
+<div class="splash show" id="splash">
+  <div class="splash-card">
+    <div class="splash-kicker">◆ National Pickle Open ◆</div>
+    <h1 class="splash-title">Slam City</h1>
+    <div class="splash-sub">8-Bit Pickleball</div>
+    <button class="pix" id="btnStart" data-accent="p1">▶ Play</button>
+    <div class="splash-ladder">Round of 16 → Quarterfinal → Semifinal → Final</div>
+  </div>
 </div>
 
 <div class="onboard" id="onboard">
@@ -464,6 +504,7 @@
 
   // playable mode: human drives one near player, AI covers the partner
   let controlMode = false;
+  let pendingOnboard = false;   // first-run help card, queued behind the splash (mobile only)
   const HUMAN = players[0];
   const keys = {};
   const touchVec = {x:0, y:0};   // virtual-joystick vector (-1..1); merges with keys in applyHumanMovement
@@ -1752,18 +1793,36 @@
     document.addEventListener('gesturestart', e=>e.preventDefault());
     document.addEventListener('touchmove', e=>{ if(e.touches.length>1) e.preventDefault(); }, {passive:false});
     // first-run onboarding: the desktop caption explaining controls is display:none
-    // here, so a first-time phone player would otherwise get no instructions at all
+    // here, so a first-time phone player would otherwise get no instructions at all.
+    // No longer shown on load — the splash owns the entry now, and this queues up
+    // behind it, otherwise both overlays stack on a first-run phone.
     const onboard=document.getElementById('onboard'), ONBOARD_KEY='slamCityOnboarded';
-    let seenOnboard=false;
-    try{ seenOnboard = localStorage.getItem(ONBOARD_KEY)==='1'; }catch(e){}
-    if(!seenOnboard) onboard.classList.add('show');
+    try{ pendingOnboard = localStorage.getItem(ONBOARD_KEY)!=='1'; }catch(e){ pendingOnboard=true; }
     document.getElementById('btnOnboardOK').addEventListener('click', ()=>{
       onboard.classList.remove('show');
       try{ localStorage.setItem(ONBOARD_KEY,'1'); }catch(e){}
-      if(!controlMode) setControl(true);
-      autoFullscreen();
+      startRun();
     });
   }
+  // ---- front door ----
+  // A run always begins at the Round of 16 from 0-0. Take Control alone never did this:
+  // it handed you the demo's match in progress, at the demo's score.
+  function startRun(){
+    tourRound = 0;
+    reset();
+    if(!controlMode) setControl(true);
+    autoFullscreen();
+  }
+  const splash=document.getElementById('splash');
+  document.getElementById('btnStart').addEventListener('click', ()=>{
+    ensureAudio();
+    splash.classList.remove('show');
+    // first-run phone players get the how-to-play card first, then start; everyone else
+    // goes straight in. Chained rather than stacked — two fixed overlays at once is a mess.
+    if(pendingOnboard){ pendingOnboard=false; document.getElementById('onboard').classList.add('show'); return; }
+    startRun();
+  });
+
   const btnGear=document.getElementById('btnGear');
   btnGear.addEventListener('click',()=>{ ensureAudio(); document.body.classList.toggle('menuOpen'); });
   // choosing any menu action closes the panel
