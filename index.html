@@ -474,14 +474,47 @@
   // therefore stretches the BOTTOM down rather than pushing the top past validated
   // ground. There was room: the old first two rounds measured 100% win rate BOTH, two
   // tiers doing one tier's job, so LOCAL now goes properly soft.
+  // Each tier is a LEVEL you compete at, not a single match — you win `win` events at a
+  // tier to get promoted, playing through the tier's event pool as you go. This is the
+  // career: rec centre -> world final over ~8 matches, not four.
   const TIERS = [
-    { stage:'LOCAL',    event:'City Rec Open',        foe:'THE WEEKENDERS', missBase:0.036, missRamp:0.034, missCap:0.42 },
-    { stage:'REGIONAL', event:'Regional Classic',     foe:'THE CLUB TEAM',  missBase:0.026, missRamp:0.026, missCap:0.33 },
-    { stage:'NATIONAL', event:'National Pickle Open', foe:'THE PROS',       missBase:0.018, missRamp:0.020, missCap:0.26 },
-    { stage:'GLOBAL',   event:'World Championship',   foe:'THE LEGENDS',    missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
+    { stage:'LOCAL',    win:2, events:['City Rec Open','Sunday Scramble'],       foe:'THE WEEKENDERS', missBase:0.036, missRamp:0.034, missCap:0.42 },
+    { stage:'REGIONAL', win:2, events:['Regional Classic','State Open'],         foe:'THE CLUB TEAM',  missBase:0.026, missRamp:0.026, missCap:0.33 },
+    { stage:'NATIONAL', win:2, events:['National Pickle Open','Pro Invitational'],foe:'THE PROS',      missBase:0.018, missRamp:0.020, missCap:0.26 },
+    { stage:'GLOBAL',   win:2, events:['World Championship','Grand Slam Final'],  foe:'THE LEGENDS',    missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
   ];
   let tourRound=0;
   const tier=()=>TIERS[tourRound];
+  // which event within the tier you're on = how many you've already won there. Falls back
+  // to the first event when there's no career (attract demo).
+  const curEvent=()=>{ const t=tier(); return t.events[(career? career.wins:0) % t.events.length]; };
+
+  // ---- career (MyCareer): persisted identity + progression across sessions ----
+  const CAREER_KEY='slamCityCareer';
+  let career=null;   // { name, tier, wins, w, l, rating, done }
+  function newCareer(name){ return { name:(name||'YOU'), tier:0, wins:0, w:0, l:0, rating:2.50, done:false }; }
+  function saveCareer(){ if(!career) return; try{ localStorage.setItem(CAREER_KEY, JSON.stringify(career)); }catch(e){} }
+  function loadCareer(){
+    try{
+      const s=localStorage.getItem(CAREER_KEY); if(!s) return null;
+      const c=JSON.parse(s);
+      // validate shape — a stale/corrupt or old-schema blob must not crash the boot or
+      // index TIERS out of range
+      if(typeof c.tier!=='number' || c.tier<0 || c.tier>=TIERS.length) return null;
+      if(typeof c.wins!=='number' || typeof c.rating!=='number') return null;
+      return c;
+    }catch(e){ return null; }
+  }
+  // pure: what a win/loss means FROM HERE, without mutating — the banner shows this before
+  // tourAdvance() applies it, so both must read the same pre-advance state and rules.
+  function careerResult(won){
+    if(!career) return null;
+    if(!won) return { headline:'GAME!', line:'EVENT LOST — REPLAY', kind:'loss' };
+    const willPromote = career.wins+1 >= tier().win;
+    if(!willPromote) return { headline:'GAME!', line:'EVENT WON — '+(career.wins+1)+' / '+tier().win, kind:'win' };
+    if(tourRound >= TIERS.length-1) return { headline:'CHAMPION!', line:'WORLD CHAMPION', kind:'champ' };
+    return { headline:'GAME!', line:'PROMOTED TO '+TIERS[tourRound+1].stage, kind:'promote' };
+  }
   // The tier sharpens the OPPONENT only. cfg() is global and feeds BOTH teams, so tiering
   // it directly would also make the player's own AI partner miss more in the early rounds
   // — that isn't an easier game, it's just a worse teammate.
@@ -743,13 +776,25 @@
   // is also the RESET button and the boot path, and gameWinner is still set while the
   // win banner is up — so hitting RESET there would silently skip you a round.
   function tourAdvance(){
-    // the attract demo does NOT get to play your ladder. This path runs on every
-    // match-over, including AI-vs-AI with nobody watching: measured, the demo climbed
-    // R16 -> QF in ~5min of idle and cycled the whole ladder if left alone, so you'd
-    // press Take Control already in a round you never earned.
-    if(!controlMode) return;
-    if(gameWinner!==0) return;                                  // lost: replay this round
-    tourRound = tourRound >= TIERS.length-1 ? 0 : tourRound+1;
+    // the attract demo does NOT get to touch your career. This runs on every match-over,
+    // including AI-vs-AI with nobody watching: measured, the old ladder climbed R16 -> QF
+    // in ~5min of idle and cycled itself. career is null in attract mode, which is the
+    // second half of this guard.
+    if(!controlMode || !career) return;
+    if(gameWinner===0){
+      career.w++; career.wins++;
+      // beating a tougher field is worth more; clamped like a real rating so it can't run away
+      career.rating = Math.min(8, career.rating + 0.06 + tourRound*0.03);
+      if(career.wins >= tier().win){
+        if(tourRound >= TIERS.length-1){ career.done=true; }   // world champion: stay at GLOBAL
+        else { tourRound++; career.tier=tourRound; career.wins=0; }
+      }
+    } else {
+      career.l++;
+      career.rating = Math.max(2.0, career.rating - 0.04);      // a loss dings you, floored
+      // wins unchanged: you replay the same event until you take it
+    }
+    saveCareer();
   }
 
   function reset(){
@@ -767,7 +812,7 @@
     // display:none on mobile, which is exactly why the stage also lives on the canvas
     // wall sign. (both are uppercased by CSS.)
     const ev=document.getElementById('marqueeEvent');
-    if(ev) ev.textContent = tier().event;
+    if(ev) ev.textContent = curEvent();
     const sub=document.querySelector('.marquee .sub');
     if(sub) sub.textContent = 'vs '+tier().foe+' · Center Court';
     startPoint(true);   // fresh game: snap into formation, there's nothing to walk from
@@ -1582,17 +1627,17 @@
   }
 
   function drawGameBanner(){ if(gameBanner<=0) return; ctx.fillStyle='rgba(8,6,26,0.72)'; ctx.fillRect(0,HUD_H,W,H-HUD_H);
-    // tourRound still reads as the round just played — tourAdvance() runs later, when the
-    // banner expires and the dead phase resets — so this can name what the win bought
-    const won = gameWinner===0, champ = won && tourRound>=TIERS.length-1;
-    textC(champ?'CHAMPION!':'GAME!',W/2,74,3,champ?C.ball:(won?C.p1:C.p2));
-    textC(won?'RED TEAM WINS':'CYAN TEAM WINS',W/2,104,1,C.ink);
-    // say what the result actually bought — a ladder you can't see is just a rematch
-    textC(champ ? 'WORLD CHAMPIONS'
-        : won   ? 'NEXT: '+TIERS[tourRound+1].stage
-        :         'REPLAY THE '+tier().stage,
-        W/2,114,1,won?C.courtL:C.muted);
-    if(frame%24<16) textC(champ?'RUN IT BACK':'PLAY ON',W/2,126,1,C.muted); }
+    // careerResult reads PRE-advance state (tourAdvance runs later, when the banner
+    // expires and the dead phase resets), so it names what this match just bought.
+    const won = gameWinner===0;
+    const r = careerResult(won) || { headline:won?'GAME!':'GAME!', line:won?'RED TEAM WINS':'CYAN TEAM WINS', kind:won?'win':'loss' };
+    const champ = r.kind==='champ';
+    textC(r.headline,W/2,72,3,champ?C.ball:(won?C.p1:C.p2));
+    textC((won?'RED TEAM':'CYAN TEAM')+' WINS',W/2,102,1,C.ink);
+    textC(r.line,W/2,112,1,champ?C.ball:(won?C.courtL:C.muted));
+    // rating + record line, so the win visibly moves your career
+    if(career) textC(career.name+'  '+career.rating.toFixed(2)+'  ('+career.w+'-'+career.l+')',W/2,122,1,C.muted);
+    if(frame%24<16) textC(champ?'A LEGEND IS BORN':'PLAY ON',W/2,132,1,C.muted); }
 
   function drawControlUI(){
     // landing marker: where the ball in flight will touch down (gold = yours to play)
@@ -1817,8 +1862,12 @@
   // ---- front door ----
   // A run always begins at the Round of 16 from 0-0. Take Control alone never did this:
   // it handed you the demo's match in progress, at the demo's score.
-  function startRun(){
-    tourRound = 0;
+  function startRun(fresh){
+    // continue a saved career, or start a new one. A finished (champion) career always
+    // starts fresh — you've won it, the next Play is a new run.
+    if(fresh || !career || career.done) career = newCareer(career? career.name : undefined);
+    tourRound = career.tier;
+    saveCareer();
     reset();
     if(!controlMode) setControl(true);
     autoFullscreen();
@@ -1926,6 +1975,7 @@
     goFullscreen();
   }
 
+  career = loadCareer();   // resume a saved career if there is one; null = attract/new
   syncPlay(); reset(); loop();
 
   // PWA: install-to-home-screen support; silently skipped where unsupported (e.g. artifact host)

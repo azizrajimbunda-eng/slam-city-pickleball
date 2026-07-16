@@ -70,6 +70,9 @@ global.window = global;
 global.addEventListener = () => {};
 global.matchMedia = () => ({ matches: false });
 global.navigator = { maxTouchPoints: 0 };
+// career persistence reads localStorage at boot (loadCareer) — stub it, in-memory
+global.localStorage = { _d: {}, getItem(k) { return k in this._d ? this._d[k] : null; },
+  setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; } };
 let rafCb = null;
 global.requestAnimationFrame = cb => { rafCb = cb; return 1; };
 global.cancelAnimationFrame = () => { rafCb = null; };
