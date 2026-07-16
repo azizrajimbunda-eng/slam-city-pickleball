@@ -418,6 +418,27 @@
   // dynamic paceBoost surges toward FAST_PACE on drives, smashes and net battles.
   const TUNE = { pace:0.45, missBase:0.012, missRamp:0.015, missCap:0.22, spdup:0.11, shake:0.9, bob:0.8 };
   const cfg=()=>TUNE;
+  // ---- tournament ladder ----
+  // Only the MISS knobs vary per round. pace/spdup are the tuned FEEL — validated on a
+  // phone across testers — and must never become difficulty dials; turning the one thing
+  // people confirmed feels right into a slider is how you lose the tuned base.
+  // The FINAL is exactly TUNE, so nothing in the ladder is harder than a tuning a human
+  // has confirmed is fair — the earlier rounds ramp UP to it.
+  // This only reads as difficulty at all because misses now express believably (a weaker
+  // player dumps dinks into the tape and pops them up). Before that fix a high miss rate
+  // just meant more moonwalking, so a "worse" opponent would have looked broken.
+  const TIERS = [
+    { round:'ROUND OF 16',  foe:'THE ROOKIES',    missBase:0.030, missRamp:0.030, missCap:0.36 },
+    { round:'QUARTERFINAL', foe:'THE REGULARS',   missBase:0.024, missRamp:0.025, missCap:0.31 },
+    { round:'SEMIFINAL',    foe:'THE CONTENDERS', missBase:0.018, missRamp:0.020, missCap:0.26 },
+    { round:'FINAL',        foe:'THE CHAMPIONS',  missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
+  ];
+  let tourRound=0;
+  const tier=()=>TIERS[tourRound];
+  // The tier sharpens the OPPONENT only. cfg() is global and feeds BOTH teams, so tiering
+  // it directly would also make the player's own AI partner miss more in the early rounds
+  // — that isn't an easier game, it's just a worse teammate.
+  const missCfg=t=>t===1?tier():TUNE;
 
   // Dynamic pace: base is slow (dinks), but drives/smashes/net attacks briefly
   // speed the whole sim up, then it eases back to slow. curPace() is the live time-scale.
@@ -667,6 +688,17 @@
     for(let i=0;i<50;i++) particles.push({x:20+Math.random()*216,y:HUD_H+Math.random()*20,vx:(Math.random()-.5)*2.2,vy:Math.random()*1.2,life:70+Math.random()*40,g:0.08,color:cols[(Math.random()*cols.length)|0],sz:2}); }
 
   // ================= point / serve flow =================
+  // Win and you climb; lose and you replay the same opponent (forgiving beats a gauntlet
+  // on a phone — a loss in the Final shouldn't cost four matches). Taking the Final runs
+  // the ladder back from the top.
+  // Deliberately called at the match-over site rather than from inside reset(): reset()
+  // is also the RESET button and the boot path, and gameWinner is still set while the
+  // win banner is up — so hitting RESET there would silently skip you a round.
+  function tourAdvance(){
+    if(gameWinner!==0) return;                                  // lost: replay this round
+    tourRound = tourRound >= TIERS.length-1 ? 0 : tourRound+1;
+  }
+
   function reset(){
     score=[0,0]; rally=0; maxRally=0; servingTeam=0; prevServing=0;
     serverNum=2; firstTurn=true;                // games open at 0-0-2
@@ -677,6 +709,11 @@
     serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     hitStop=0; camZoom=1; camZoomTarget=1; camPanX=0;
+    // keep the desktop marquee honest — it hardcoded "Doubles Final", which is a lie in
+    // every round but the last. It's display:none on mobile, which is exactly why the
+    // round also lives on the canvas wall sign. (.sub is uppercased by CSS.)
+    const sub=document.querySelector('.marquee .sub');
+    if(sub) sub.textContent = tier().round+' · Center Court';
     startPoint(true);   // fresh game: snap into formation, there's nothing to walk from
   }
 
@@ -740,11 +777,13 @@
     const ps = team(rt);
     const dist = p => Math.hypot(p.cx-ball.tcx, p.cy-ball.tcy);
     responsible = dist(ps[0]) <= dist(ps[1]) ? ps[0] : ps[1];
-    const c=cfg();
+    // miss rate is per-TEAM: the opponent carries the tournament tier, the player's side
+    // always uses the tuned base (see missCfg)
+    const mc = missCfg(rt);
     // hand-battle pressure: each rapid exchange makes the next dig harder — but
     // capped, so a long rally or sustained hand battle never spirals past a real
     // player's worst day into "abandons a ball sitting right in front of them"
-    const missChance = Math.min(c.missCap, c.missBase + shotCount*c.missRamp + (handBattle>0? 0.05*hbCount : 0));
+    const missChance = Math.min(mc.missCap, mc.missBase + shotCount*mc.missRamp + (handBattle>0? 0.05*hbCount : 0));
     responsible.willMiss = (shotCount>=2) && (Math.random() < missChance);
     responsible.missDir = Math.random()<0.5?-1:1;
   }
@@ -1273,7 +1312,7 @@
         // settle beat: everyone holds their pose for a moment before walking back
         if(phaseTimer <= (reducedMotion?38:66)) updatePlayers();
         if(phaseTimer>0) phaseTimer--;
-        else if(matchOver) reset();
+        else if(matchOver){ tourAdvance(); reset(); }
         else startPoint();
         break;
     }
@@ -1286,9 +1325,12 @@
     ctx.fillStyle=wallGrad; ctx.fillRect(0,HUD_H,W,farY-HUD_H);
     // stadium lights
     for(const lx of [46,W-46]){ for(let r=8;r>=0;r-=2){ ctx.fillStyle=`rgba(120,150,255,${0.05+(8-r)*0.008})`; ctx.fillRect(lx-r,HUD_H,r*2,r); } px(lx-5,HUD_H,10,2,'#e9f0ff'); }
-    // sponsor banner
-    px(70,HUD_H+3,52,7,'#241c45'); text('PICKLE OPEN',74,HUD_H+4,1,'#8ef0ff');
-    px(134,HUD_H+3,52,7,'#3a1730'); text('SLAM CITY',150,HUD_H+4,1,'#ffb3ab');
+    // stadium signage: the round you're in (canvas, not the HTML marquee — that's hidden
+    // on mobile, which is where the game is actually played), plus the house brand.
+    // Boxes are sized to the widest label each has to hold; the old pair hardcoded 52px
+    // while textW('PICKLE OPEN',1) is 65px, so the left sign bled into the right one.
+    px(60,HUD_H+3,84,7,'#241c45'); textC(tier().round,102,HUD_H+4,1,'#8ef0ff');
+    px(152,HUD_H+3,56,7,'#3a1730'); textC('SLAM CITY',180,HUD_H+4,1,'#ffb3ab');
     // crowd rows
     const jump=crowdJump>0?crowdJump/22:0; const c=cfg();
     for(let row=0;row<2;row++){ const by=HUD_H+13+row*6;
@@ -1484,9 +1526,17 @@
   }
 
   function drawGameBanner(){ if(gameBanner<=0) return; ctx.fillStyle='rgba(8,6,26,0.72)'; ctx.fillRect(0,HUD_H,W,H-HUD_H);
-    const col=gameWinner===0?C.p1:C.p2; textC('GAME!',W/2,74,3,col);
-    textC((gameWinner===0?'RED TEAM':'CYAN TEAM')+' WINS',W/2,104,1,C.ink);
-    if(frame%24<16) textC('RUN IT BACK',W/2,120,1,C.muted); }
+    // tourRound still reads as the round just played — tourAdvance() runs later, when the
+    // banner expires and the dead phase resets — so this can name what the win bought
+    const won = gameWinner===0, champ = won && tourRound>=TIERS.length-1;
+    textC(champ?'CHAMPION!':'GAME!',W/2,74,3,champ?C.ball:(won?C.p1:C.p2));
+    textC(won?'RED TEAM WINS':'CYAN TEAM WINS',W/2,104,1,C.ink);
+    // say what the result actually bought — a ladder you can't see is just a rematch
+    textC(champ ? 'YOU WON THE PICKLE OPEN'
+        : won   ? 'NEXT: '+TIERS[tourRound+1].round
+        :         'REPLAY THE '+tier().round,
+        W/2,114,1,won?C.courtL:C.muted);
+    if(frame%24<16) textC(champ?'RUN IT BACK':'PLAY ON',W/2,126,1,C.muted); }
 
   function drawControlUI(){
     // landing marker: where the ball in flight will touch down (gold = yours to play)
