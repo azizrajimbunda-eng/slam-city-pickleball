@@ -270,8 +270,8 @@
 
 <div class="stage">
   <div class="marquee">
-    <span class="diamond">◆</span> National Pickle Open <span class="diamond">◆</span>
-    <span class="sub">Doubles Final · Center Court</span>
+    <span class="diamond">◆</span> <span id="marqueeEvent">City Rec Open</span> <span class="diamond">◆</span>
+    <span class="sub">Doubles · Center Court</span>
   </div>
 
   <div class="cabinet">
@@ -323,11 +323,11 @@
 
 <div class="splash show" id="splash">
   <div class="splash-card">
-    <div class="splash-kicker">◆ National Pickle Open ◆</div>
+    <div class="splash-kicker">◆ Rec Centre to World Final ◆</div>
     <h1 class="splash-title">Slam City</h1>
     <div class="splash-sub">8-Bit Pickleball</div>
     <button class="pix" id="btnStart" data-accent="p1">▶ Play</button>
-    <div class="splash-ladder">Round of 16 → Quarterfinal → Semifinal → Final</div>
+    <div class="splash-ladder">Local → Regional → National → Global</div>
   </div>
 </div>
 
@@ -467,11 +467,18 @@
   // This only reads as difficulty at all because misses now express believably (a weaker
   // player dumps dinks into the tape and pops them up). Before that fix a high miss rate
   // just meant more moonwalking, so a "worse" opponent would have looked broken.
+  // A career, not one afternoon: you climb from the rec centre to the world final, and
+  // the event name climbs with you (see the marquee + wall sign).
+  // GLOBAL is exactly TUNE — the tuning testers blessed at ~50% win rate — so the top of
+  // the ladder is still somewhere a human has confirmed is fair. "Progressing difficulty"
+  // therefore stretches the BOTTOM down rather than pushing the top past validated
+  // ground. There was room: the old first two rounds measured 100% win rate BOTH, two
+  // tiers doing one tier's job, so LOCAL now goes properly soft.
   const TIERS = [
-    { round:'ROUND OF 16',  foe:'THE ROOKIES',    missBase:0.030, missRamp:0.030, missCap:0.36 },
-    { round:'QUARTERFINAL', foe:'THE REGULARS',   missBase:0.024, missRamp:0.025, missCap:0.31 },
-    { round:'SEMIFINAL',    foe:'THE CONTENDERS', missBase:0.018, missRamp:0.020, missCap:0.26 },
-    { round:'FINAL',        foe:'THE CHAMPIONS',  missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
+    { stage:'LOCAL',    event:'City Rec Open',        foe:'THE WEEKENDERS', missBase:0.036, missRamp:0.034, missCap:0.42 },
+    { stage:'REGIONAL', event:'Regional Classic',     foe:'THE CLUB TEAM',  missBase:0.026, missRamp:0.026, missCap:0.33 },
+    { stage:'NATIONAL', event:'National Pickle Open', foe:'THE PROS',       missBase:0.018, missRamp:0.020, missCap:0.26 },
+    { stage:'GLOBAL',   event:'World Championship',   foe:'THE LEGENDS',    missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
   ];
   let tourRound=0;
   const tier=()=>TIERS[tourRound];
@@ -755,11 +762,14 @@
     serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     hitStop=0; camZoom=1; camZoomTarget=1; camPanX=0;
-    // keep the desktop marquee honest — it hardcoded "Doubles Final", which is a lie in
-    // every round but the last. It's display:none on mobile, which is exactly why the
-    // round also lives on the canvas wall sign. (.sub is uppercased by CSS.)
+    // the marquee climbs with you: City Rec Open -> World Championship. It hardcoded
+    // "National Pickle Open / Doubles Final", which was a lie at every stage but one.
+    // display:none on mobile, which is exactly why the stage also lives on the canvas
+    // wall sign. (both are uppercased by CSS.)
+    const ev=document.getElementById('marqueeEvent');
+    if(ev) ev.textContent = tier().event;
     const sub=document.querySelector('.marquee .sub');
-    if(sub) sub.textContent = tier().round+' · Center Court';
+    if(sub) sub.textContent = 'vs '+tier().foe+' · Center Court';
     startPoint(true);   // fresh game: snap into formation, there's nothing to walk from
   }
 
@@ -1375,7 +1385,7 @@
     // on mobile, which is where the game is actually played), plus the house brand.
     // Boxes are sized to the widest label each has to hold; the old pair hardcoded 52px
     // while textW('PICKLE OPEN',1) is 65px, so the left sign bled into the right one.
-    px(60,HUD_H+3,84,7,'#241c45'); textC(tier().round,102,HUD_H+4,1,'#8ef0ff');
+    px(60,HUD_H+3,84,7,'#241c45'); textC(tier().stage,102,HUD_H+4,1,'#8ef0ff');
     px(152,HUD_H+3,56,7,'#3a1730'); textC('SLAM CITY',180,HUD_H+4,1,'#ffb3ab');
     // crowd rows
     const jump=crowdJump>0?crowdJump/22:0; const c=cfg();
@@ -1578,9 +1588,9 @@
     textC(champ?'CHAMPION!':'GAME!',W/2,74,3,champ?C.ball:(won?C.p1:C.p2));
     textC(won?'RED TEAM WINS':'CYAN TEAM WINS',W/2,104,1,C.ink);
     // say what the result actually bought — a ladder you can't see is just a rematch
-    textC(champ ? 'YOU WON THE PICKLE OPEN'
-        : won   ? 'NEXT: '+TIERS[tourRound+1].round
-        :         'REPLAY THE '+tier().round,
+    textC(champ ? 'WORLD CHAMPIONS'
+        : won   ? 'NEXT: '+TIERS[tourRound+1].stage
+        :         'REPLAY THE '+tier().stage,
         W/2,114,1,won?C.courtL:C.muted);
     if(frame%24<16) textC(champ?'RUN IT BACK':'PLAY ON',W/2,126,1,C.muted); }
 
