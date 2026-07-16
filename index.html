@@ -499,9 +499,15 @@
   // Each tier is a LEVEL you compete at, not a single match — you win `win` events at a
   // tier to get promoted, playing through the tier's event pool as you go. This is the
   // career: rec centre -> world final over ~8 matches, not four.
+  // Career pacing, retuned after the first career playtest ("pace feels slow, you get
+  // bored fast"). Measured cause was STRUCTURAL, not sim speed — pace-system hot time is
+  // flat across tiers (15% vs 18%), but the old shape demanded 4 wins (~26 min) of
+  // 11-2 blowouts (margin 8.8, opponent attacking half as often) before NATIONAL bit.
+  // Fix: win:1 at the lower tiers (challenge arrives by match 3, ~13 min) and LOCAL
+  // tightened back to the old validated opener (missCap 0.36). TUNE.pace untouched.
   const TIERS = [
-    { stage:'LOCAL',    win:2, events:['City Rec Open','Sunday Scramble'],       foe:'THE WEEKENDERS', missBase:0.036, missRamp:0.034, missCap:0.42 },
-    { stage:'REGIONAL', win:2, events:['Regional Classic','State Open'],         foe:'THE CLUB TEAM',  missBase:0.026, missRamp:0.026, missCap:0.33 },
+    { stage:'LOCAL',    win:1, events:['City Rec Open','Sunday Scramble'],       foe:'THE WEEKENDERS', missBase:0.030, missRamp:0.030, missCap:0.36 },
+    { stage:'REGIONAL', win:1, events:['Regional Classic','State Open'],         foe:'THE CLUB TEAM',  missBase:0.026, missRamp:0.026, missCap:0.33 },
     { stage:'NATIONAL', win:2, events:['National Pickle Open','Pro Invitational'],foe:'THE PROS',      missBase:0.018, missRamp:0.020, missCap:0.26 },
     { stage:'GLOBAL',   win:2, events:['World Championship','Grand Slam Final'],  foe:'THE LEGENDS',    missBase:TUNE.missBase, missRamp:TUNE.missRamp, missCap:TUNE.missCap },
   ];
