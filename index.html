@@ -573,6 +573,8 @@
   // playable mode: human drives one near player, AI covers the partner
   let controlMode = false;
   let pendingOnboard = false;   // first-run help card, queued behind the splash (mobile only)
+  let awaitContinue = false;    // match over: hold the banner until the player taps a shot button
+  let serveStyle = null;        // human serve variation picked at the meter; null = AI standard
   const HUMAN = players[0];
   const keys = {};
   const touchVec = {x:0, y:0};   // virtual-joystick vector (-1..1); merges with keys in applyHumanMovement
@@ -835,6 +837,7 @@
     serverIdx=0;
     particles.length=0; popups.length=0; shakeMag=0; flash=0; gameBanner=0; gameWinner=-1; matchOver=false;
     hitStop=0; camZoom=1; camZoomTarget=1; camPanX=0;
+    awaitContinue=false; serveStyle=null; setServeLabels(false);   // RESET can fire mid-banner or mid-meter
     // the marquee climbs with you: City Rec Open -> World Championship. It hardcoded
     // "National Pickle Open / Doubles Final", which was a lie at every stage but one.
     // display:none on mobile, which is exactly why the stage also lives on the canvas
@@ -892,8 +895,10 @@
     if(controlMode && servingTeam===0 && serverIdx===0){
       serveMeter.t=0; serveMeter.locked=-1; serveMeter.quality=undefined;
       phase='serveMeter';
+      setServeLabels(true);   // buttons become the serve picker while the meter is up
     } else {
       phase='serve'; phaseTimer = reducedMotion? 30 : 38;
+      setServeLabels(false);
     }
   }
 
@@ -923,12 +928,22 @@
     let tcx, tcy, T, flat=false, sitter=false, netDump=false;
     const deep = rt===1?0.88:0.12, kitchenIn = rt===1?0.60:0.40, kitchenNear = rt===1?0.56:0.44;
     if(type==='serve'){
-      tcy=deep; tcx=-Math.sign(ball.cx||0.1)*0.5; T=56;
-      if(quality==='perfect'){ tcy = rt===1?0.94:0.06; T=46; }             // deep laser
-      else if(quality==='bad'){                                            // rushed: short or long
-        if(Math.random()<0.5) tcy = rt===1?0.64:0.36;                      // into the kitchen = fault
-        else tcy = rt===1?1.06:-0.06;                                      // sails long = out
+      const dir = -Math.sign(ball.cx||0.1);   // cross-court, from wherever the server stands
+      tcx=dir*0.5; tcy=deep; T=56;            // standard: what the AI serves
+      // human serve variations, picked with the shot buttons at the meter — a risk
+      // ladder. All land past the kitchen (legal); timing quality still applies on top.
+      if(serveStyle==='sky'){ T=82; tcy = rt===1?0.92:0.08; }               // high, deep, safe
+      else if(serveStyle==='angle'){ T=50; tcx=dir*0.84; tcy = rt===1?0.78:0.22; } // drag them wide
+      else if(serveStyle==='power'){ T=44; tcy = rt===1?0.90:0.10; }        // flat and heavy
+      else if(serveStyle==='boom'){ T=38; tcy = rt===1?0.93:0.07; }         // everything you have
+      if(quality==='perfect'){ T=Math.round(T*0.86); tcy = rt===1? Math.min(0.96,tcy+0.03) : Math.max(0.04,tcy-0.03); }
+      else if(quality==='bad'){                                             // rushed: short or long
+        if(Math.random()<0.5) tcy = rt===1?0.64:0.36;                       // into the kitchen = fault
+        else tcy = rt===1?1.06:-0.06;                                       // sails long = out
       }
+      // BOOM's price: unless your timing is perfect, it sails long 30% of the time
+      else if(serveStyle==='boom' && Math.random()<0.30){ tcy = rt===1?1.07:-0.07; }
+      serveStyle=null;   // one-shot — AI serves (no style set) stay the tuned standard
     }
     else if(type==='return'){ tcy=deep; tcx=(Math.random()-0.5)*1.2; T=48; }
     else if(type==='drop'){ tcy=kitchenIn; tcx=(Math.random()-0.5)*0.9; T=64; }
@@ -1026,16 +1041,26 @@
     else sfx.pock();
   }
 
+  // the four touch buttons double as serve pickers while the meter is up
+  function setServeLabels(on){
+    const L = on ? {tbDink:'ANGLE',tbDrive:'POWER',tbSmash:'BOOM',tbLob:'SKY'}
+                 : {tbDink:'DINK',tbDrive:'DRIVE',tbSmash:'SMASH',tbLob:'LOB'};
+    for(const id in L){ const el=document.getElementById(id); if(el) el.textContent=L[id]; }
+  }
+
   function serverHit(quality){
     const sp = team(servingTeam)[serverIdx];
     sp.swing=1; sp.paddleSide = ball.tcx>sp.cx?1:-1; sp.swingType='lob'; sp.backhand=false;  // underhand serve = scoop motion
     shotCount=1;
+    const st=serveStyle;   // launch() consumes it — read first so the callout can name it
     launch(servingTeam,'serve',quality);
-    popup('SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
+    popup(st? st.toUpperCase()+' SERVE' : 'SERVE', ball.cx, baselineCy(servingTeam), 0.9, servingTeam===0?C.p1:C.p2, false);
+    setServeLabels(false);
   }
 
-  function lockServe(){
+  function lockServe(style){
     if(serveMeter.locked>=0) return;
+    serveStyle = style || null;   // harness/legacy callers pass nothing -> standard serve
     const pos=meterPos(), d=Math.abs(pos-0.5);
     serveMeter.locked=pos; serveMeter.hold=14;
     serveMeter.quality = d<0.10?'perfect' : d<0.28?undefined : 'bad';
@@ -1432,6 +1457,13 @@
       case 'serveMeter':   // human times the serve: needle oscillates until locked
         updatePlayers();
         serveMeter.t++;
+        // serve legality (playtest: you could wander anywhere and the ball served itself
+        // from a spot you'd left): the server may shuffle along the baseline to pick a
+        // spot, but stays BEHIND it on their service side — and the ball rides with
+        // them, so it can never float mid-court or fire from where they aren't.
+        HUMAN.cy = clamp(HUMAN.cy, -0.08, 0.0);
+        HUMAN.cx = HUMAN.lane>0 ? clamp(HUMAN.cx, 0.06, 1.0) : clamp(HUMAN.cx, -1.0, -0.06);
+        ball.cx = HUMAN.cx; ball.cy = HUMAN.cy;
         if(serveMeter.locked>=0 && --serveMeter.hold<=0){ serverHit(serveMeter.quality); phase='play'; }
         break;
       case 'play':
@@ -1441,7 +1473,13 @@
         // settle beat: everyone holds their pose for a moment before walking back
         if(phaseTimer <= (reducedMotion?38:66)) updatePlayers();
         if(phaseTimer>0) phaseTimer--;
-        else if(matchOver){ tourAdvance(); reset(); }
+        else if(matchOver){
+          // match over: the PLAYER decides when the next match starts (playtest: "the
+          // game does not wait for you"). Hold the banner until a shot button is
+          // pressed (doSwing handles it). The attract demo still self-continues.
+          if(controlMode){ awaitContinue=true; gameBanner=Math.max(gameBanner,2); }
+          else { tourAdvance(); reset(); }
+        }
         else startPoint();
         break;
     }
@@ -1665,7 +1703,9 @@
     textC(r.line,W/2,112,1,champ?C.ball:(won?C.courtL:C.muted));
     // rating + record line, so the win visibly moves your career
     if(career) textC(career.name+'  '+career.rating.toFixed(2)+'  ('+career.w+'-'+career.l+')',W/2,122,1,C.muted);
-    if(frame%24<16) textC(champ?'A LEGEND IS BORN':'PLAY ON',W/2,132,1,C.muted); }
+    if(frame%24<16) textC(awaitContinue ? 'PRESS ANY SHOT BUTTON'
+                        : champ ? 'A LEGEND IS BORN' : 'PLAY ON',
+                        W/2,132,1,awaitContinue?C.ball:C.muted); }
 
   function drawControlUI(){
     // landing marker: where the ball in flight will touch down (gold = yours to play)
@@ -1762,14 +1802,16 @@
       const nc = serveMeter.locked<0 ? '#ffffff'
         : serveMeter.quality==='perfect' ? '#7bff8a' : serveMeter.quality==='bad' ? C.p1 : C.ball;
       px(x0+pos*w-1,y-3,2,12,nc);
-      if(serveMeter.locked<0 && frame%20<12) textC('TAP TO SERVE',128,y-13,1,C.ball);
+      if(serveMeter.locked<0 && frame%20<12) textC('PICK YOUR SERVE',128,y-13,1,C.ball);
     }
 
-    // hint bar along the apron
+    // hint bar along the apron — during the serve meter the same keys pick the serve
     px(0,184,W,8,'rgba(8,6,26,0.72)');
     const cur = humanShotTimer>0 ? humanShotType : null;
     text('WASD',3,185,1,C.muted);
-    const shots=[['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash'],['U','LOB','lob']];
+    const shots = phase==='serveMeter'
+      ? [['J','ANGLE','dink'],['K','POWER','drive'],['L','BOOM','smash'],['U','SKY','lob']]
+      : [['J','DINK','dink'],['K','DRIVE','drive'],['L','SMASH','smash'],['U','LOB','lob']];
     let x=40;
     for(let i=0;i<shots.length;i++){ const on=cur===shots[i][2], isRec=recHint===shots[i][2];
       text(shots[i][0], x, 185, 1, on?C.ball:C.p1); text(shots[i][1], x+8, 185, 1, on?C.ink:isRec?'#7bff8a':C.muted);
@@ -1836,7 +1878,7 @@
     if(musicOn) startMusic();   // musicOn defaults true, but actx only exists post-gesture — kick it off here
     if(on){ running=true; syncPlay(); cv.focus(); }
     else {
-      if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; }  // hand the serve back to the AI
+      if(phase==='serveMeter'){ phase='serve'; phaseTimer=20; setServeLabels(false); }  // hand the serve back to the AI
       // clear any lingering shot recommendation (drawControlUI stops reconciling it)
       recHint=null; domHint=null;
       for(const id of ['tbDink','tbDrive','tbSmash','tbLob']) document.getElementById(id).classList.remove('hint');
@@ -1847,7 +1889,11 @@
   // a shot = swing NOW (opens a short timing window); positioning grades it on contact.
   // during the serve meter, any shot press locks the needle instead.
   function doSwing(t){ if(!controlMode) return;
-    if(phase==='serveMeter'){ lockServe(); return; }
+    // match-over gate: the first shot-button press continues to the next match
+    // (playtest: "the game does not wait for you" — no more auto-start)
+    if(awaitContinue){ awaitContinue=false; tourAdvance(); reset(); return; }
+    // at the serve meter the four buttons pick the serve VARIATION and lock the needle
+    if(phase==='serveMeter'){ lockServe({dink:'angle',drive:'power',smash:'boom',lob:'sky'}[t]); return; }
     HUMAN.swingShot=t; HUMAN.swinging=13; HUMAN.swing=1; HUMAN.swingType=t;
     humanShotType=t; humanShotTimer=22; }
   const MOVE_KEYS = ['arrowup','arrowdown','arrowleft','arrowright',' '];
@@ -1896,8 +1942,10 @@
     if(!career || career.done) career = newCareer(career? career.name : undefined);
     tourRound = career.tier;
     saveCareer();
-    reset();
+    // control BEFORE reset: startPoint() branches on controlMode to give the human the
+    // serve meter — the old order auto-served the player's first serve of every run
     if(!controlMode) setControl(true);
+    reset();
     autoFullscreen();
   }
   const splash=document.getElementById('splash');
