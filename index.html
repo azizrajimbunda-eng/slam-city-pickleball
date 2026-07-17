@@ -191,8 +191,11 @@
        (the canvas used to start at pixel 0, putting the scoreboard under it), seat
        the court a beat lower, and finish its bottom edge with a bezel lip so the
        space below reads as the machine's control deck, not dead page. */
+    /* lip only, NO blur: a large blurred box-shadow on the element that clips a
+       60fps canvas is cheap on desktop Chromium and a per-frame compositing tax on
+       mobile Safari — prime suspect in a "stutters on phone" report */
     body.mobile .screen{ padding-top:max(env(safe-area-inset-top,0px), min(5dvh,40px));
-      box-shadow:0 2px 0 #2a2358, 0 16px 44px rgba(30,24,80,.35); }
+      box-shadow:0 2px 0 #2a2358; }
     body.mobile{ background:linear-gradient(180deg, #0b0924 0%, #05040f 58%); }
     /* faint house wordmark fills the void between court and controls */
     body.mobile .stage::after{ content:'SLAM CITY'; position:fixed; left:0; right:0; top:56dvh;
@@ -2101,10 +2104,18 @@
   // a single refusal (iOS is picky about which gestures count) left the game windowed
   // in browser chrome forever — a playtest report called the result "awkward".
   // Skipped when installed standalone (already chromeless) or once fullscreen is live.
+  // retries are capped and spaced: a device that refuses fullscreen (iPhone Safari
+  // refuses it for non-video elements) shouldn't pay for an attempt on EVERY tap —
+  // 4 tries at least 8s apart covers "the browser was picky about the first gesture"
+  // without turning every swing into a fullscreen request
+  let fsTries=0, fsLast=0;
   function autoFullscreen(){
     if(!document.body.classList.contains('mobile')) return;
     if(document.fullscreenElement || document.webkitFullscreenElement) return;
     if(navigator.standalone===true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) return;
+    const now=Date.now();
+    if(fsTries>=4 || now-fsLast<8000) return;
+    fsTries++; fsLast=now;
     goFullscreen();
   }
 
