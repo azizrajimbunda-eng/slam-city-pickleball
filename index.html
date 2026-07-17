@@ -185,13 +185,28 @@
      (same pattern landscape already uses below) instead of reserving space below it. */
   @media (orientation:portrait){
     body.mobile canvas{ width:112vw; height:auto; flex-shrink:0; }
+    /* compose the whole screen instead of pinning a 4:3 strip to y=0 (playtest:
+       "the resolution got awkward"). The court can't get taller — 112vw is already
+       the crop limit before real court is lost — so: clear the notch/Dynamic Island
+       (the canvas used to start at pixel 0, putting the scoreboard under it), seat
+       the court a beat lower, and finish its bottom edge with a bezel lip so the
+       space below reads as the machine's control deck, not dead page. */
+    body.mobile .screen{ padding-top:max(env(safe-area-inset-top,0px), min(5dvh,40px));
+      box-shadow:0 2px 0 #2a2358, 0 16px 44px rgba(30,24,80,.35); }
+    body.mobile{ background:linear-gradient(180deg, #0b0924 0%, #05040f 58%); }
+    /* faint house wordmark fills the void between court and controls */
+    body.mobile .stage::after{ content:'SLAM CITY'; position:fixed; left:0; right:0; top:56dvh;
+      text-align:center; font-family:var(--sign); font-weight:700; font-size:9vw;
+      letter-spacing:.34em; color:rgba(142,240,255,.06); pointer-events:none; z-index:0; }
     /* fits 100vw: 1.5vw + 40vw zone + 54.6vw diamond (2.6×21vw) + 1.5vw ≈ 97.6vw.
        tb bumped 20->21vw + cap 84->88px after "too small/unresponsive" phone
        feedback; margin trimmed 2->1.5vw per side to absorb it safely. */
     body.mobile .padDeck{ --tb:min(21vw,88px); --sz:min(40vw,200px); --sb:min(25vw,120px); --sn:min(13vw,60px); }
-    /* keep the gear clear of the canvas HUD strip (top ~16% of the now-1.12×-bigger canvas) */
-    body.mobile #btnGear{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 12px); }
-    body.mobile .deck{ top:calc(env(safe-area-inset-top,0px) + 17.5vw + 58px); }
+    /* keep the gear clear of the canvas HUD strip (top ~16% of the now-1.12×-bigger
+       canvas) — the canvas is seated max(safe-area, 5dvh) down now, so the gear offset
+       has to carry the same seat or it clips the scoreboard's right edge */
+    body.mobile #btnGear{ top:calc(max(env(safe-area-inset-top,0px), min(5dvh,40px)) + 17.5vw + 12px); }
+    body.mobile .deck{ top:calc(max(env(safe-area-inset-top,0px), min(5dvh,40px)) + 17.5vw + 58px); }
     body.mobile .padDeck.on{ position:absolute; left:0; right:0;
       bottom:calc(env(safe-area-inset-bottom,0px) + 10px); z-index:5;
       margin:0; padding:0 1.5vw; box-sizing:border-box; background:none; pointer-events:none; }
@@ -2081,13 +2096,14 @@
     }catch(e){}
   }
   btnFull.addEventListener('click',()=>{ ensureAudio(); goFullscreen(); });
-  // mobile: the first touch on the controls is a user gesture — take the game
-  // fullscreen then. Skipped when running as an installed home-screen app
-  // (already chromeless), and never retried if the browser refuses.
-  let fsTried=false;
+  // mobile: every call is already behind a real user gesture (PLAY, a shot button) —
+  // keep trying until fullscreen actually engages. The old one-shot fsTried latch meant
+  // a single refusal (iOS is picky about which gestures count) left the game windowed
+  // in browser chrome forever — a playtest report called the result "awkward".
+  // Skipped when installed standalone (already chromeless) or once fullscreen is live.
   function autoFullscreen(){
-    if(fsTried || !document.body.classList.contains('mobile')) return;
-    fsTried=true;
+    if(!document.body.classList.contains('mobile')) return;
+    if(document.fullscreenElement || document.webkitFullscreenElement) return;
     if(navigator.standalone===true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) return;
     goFullscreen();
   }
