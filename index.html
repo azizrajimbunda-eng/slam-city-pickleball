@@ -294,6 +294,19 @@
   .onboard .row p{ margin:0; font-size:11px; line-height:1.5; color:var(--ink); }
   .onboard .row b{ color:var(--ball); }
   .onboard button{ margin-top:6px; width:100%; min-height:46px; }  /* 44px tap floor */
+
+  /* ---- suggestion box (reuses the onboard modal shell) ---- */
+  .sugg-ta{ width:100%; box-sizing:border-box; margin:2px 0 12px; padding:12px;
+    background:#0b0822; border:2px solid var(--bezel-hi); border-radius:8px; color:var(--ink);
+    font:inherit; font-size:12px; line-height:1.5; letter-spacing:.03em; resize:vertical;
+    min-height:96px; max-height:220px; outline:none; }
+  .sugg-ta:focus{ border-color:var(--ball); }
+  .sugg-status{ min-height:16px; margin:0 0 6px; font-size:10.5px; letter-spacing:.05em; color:var(--muted); }
+  .sugg-status.ok{ color:#7dff9a; }
+  .sugg-status.err{ color:#ff8a80; }
+  #suggestBox .onboard-card{ text-align:left; }
+  #suggestBox h2, #suggestBox .sub{ text-align:center; }
+  #suggestBox .name-input{ text-transform:none; letter-spacing:.03em; font-size:12px; text-align:left; }
 </style>
 
 <div class="stage">
@@ -332,6 +345,7 @@
       <button class="pix" id="btnHaptics">📳 Haptics On</button>
       <button class="pix" id="btnReset">↺ Reset</button>
       <button class="pix" id="btnFull">⛶ Full</button>
+      <button class="pix" id="btnSuggest" data-accent="ball">💡 Suggest</button>
       <span class="spacer"></span>
       <span class="tag">Aim with <b>WASD</b> as you swing · <b>J/K/L/U</b></span>
     </div>
@@ -368,6 +382,22 @@
     <input class="name-input" id="nameInput" maxlength="8" autocomplete="off"
            autocapitalize="characters" spellcheck="false" placeholder="YOU" aria-label="Player name">
     <button class="pix" id="btnNameOK" data-accent="ball">▶ Start Career</button>
+  </div>
+</div>
+
+<div class="onboard" id="suggestBox">
+  <div class="onboard-card">
+    <h2>◆ Suggestion Box ◆</h2>
+    <p class="sub">Got an idea, a gripe, or a shot that felt wrong? Tell me — it lands straight in my inbox.</p>
+    <input class="name-input" id="suggName" maxlength="40" autocomplete="off" spellcheck="false"
+           placeholder="Your name (optional)" aria-label="Your name (optional)">
+    <textarea class="sugg-ta" id="suggText" maxlength="1200" placeholder="Your suggestion…"
+              aria-label="Your suggestion"></textarea>
+    <input type="checkbox" id="suggBot" tabindex="-1" autocomplete="off"
+           style="position:absolute;left:-9999px" aria-hidden="true">
+    <p class="sugg-status" id="suggStatus"></p>
+    <button class="pix" id="btnSuggSend" data-accent="ball">▶ Send Suggestion</button>
+    <button class="pix" id="btnSuggClose" data-accent="p2">✕ Close</button>
   </div>
 </div>
 
@@ -2019,6 +2049,45 @@
 
   const btnGear=document.getElementById('btnGear');
   btnGear.addEventListener('click',()=>{ ensureAudio(); document.body.classList.toggle('menuOpen'); });
+
+  // ---- suggestion box (Web3Forms -> email) ----
+  const SUGG_KEY='d2c48dbb-88a3-40b6-ac7f-899c32be649c';   // Web3Forms access key
+  const suggestBox=document.getElementById('suggestBox'),
+        suggName=document.getElementById('suggName'), suggText=document.getElementById('suggText'),
+        suggStatus=document.getElementById('suggStatus'),
+        btnSuggSend=document.getElementById('btnSuggSend');
+  document.getElementById('btnSuggest').addEventListener('click',()=>{
+    document.body.classList.remove('menuOpen');          // close the ⚙ dropdown on mobile
+    suggStatus.textContent=''; suggStatus.className='sugg-status';
+    btnSuggSend.disabled=false; btnSuggSend.textContent='▶ Send Suggestion';
+    suggestBox.classList.add('show');
+  });
+  document.getElementById('btnSuggClose').addEventListener('click',()=>suggestBox.classList.remove('show'));
+  btnSuggSend.addEventListener('click',async ()=>{
+    const msg=suggText.value.trim();
+    if(!msg){ suggStatus.textContent='Type a suggestion first!'; suggStatus.className='sugg-status err'; return; }
+    if(document.getElementById('suggBot').checked) return;   // honeypot
+    btnSuggSend.disabled=true; btnSuggSend.textContent='… Sending';
+    suggStatus.textContent=''; suggStatus.className='sugg-status';
+    try{
+      const r=await fetch('https://api.web3forms.com/submit',{
+        method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+        body:JSON.stringify({ access_key:SUGG_KEY, subject:'Slam City suggestion',
+          from_name:suggName.value.trim()||'Anonymous player',
+          name:suggName.value.trim()||'Anonymous player', message:msg })
+      });
+      const d=await r.json();
+      if(d.success){
+        suggStatus.textContent='SENT! Salamat — every suggestion gets read. 🏓';
+        suggStatus.className='sugg-status ok';
+        suggText.value=''; btnSuggSend.textContent='✓ Sent';
+      }else{ throw new Error(d.message||'send failed'); }
+    }catch(e){
+      suggStatus.textContent='Could not send — check your connection, or drop it on the GitHub issues page instead.';
+      suggStatus.className='sugg-status err';
+      btnSuggSend.disabled=false; btnSuggSend.textContent='▶ Send Suggestion';
+    }
+  });
   // choosing any menu action closes the panel
   document.querySelector('.deck').addEventListener('click',()=>document.body.classList.remove('menuOpen'));
   // floating joystick: touch ANYWHERE in the zone and the stick appears right under

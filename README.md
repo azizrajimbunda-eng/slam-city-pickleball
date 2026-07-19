@@ -24,7 +24,9 @@ This is a playtest build, not a finished game. Things you might run into:
 
 ## Feedback
 
-If something feels off — a shot that shouldn't have worked, a control that didn't respond, a rule that seems wrong — please [open an issue](https://github.com/azizrajimbunda-eng/slam-city-pickleball/issues). Screenshots or a quick screen recording help a lot.
+Easiest way: the **💡 Suggest button in the game itself** (behind the ⚙ gear menu on mobile) — it sends your suggestion straight to my inbox, no account needed.
+
+For bugs — a shot that shouldn't have worked, a control that didn't respond, a rule that seems wrong — please [open an issue](https://github.com/azizrajimbunda-eng/slam-city-pickleball/issues). Screenshots or a quick screen recording help a lot.
 
 ## Running locally
 
